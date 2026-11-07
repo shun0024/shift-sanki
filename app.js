@@ -568,6 +568,13 @@
       }
       h += '</tr>';
     });
+    h += '</table></div></div>';
+    // 4) 月報集計
+    h += '<div class="card"><h3>月報集計<small>振り返りの記入状況と評価</small></h3><div class="sum-wrap-scroll"><table class="sum"><tr><th>氏名</th><th>出勤</th><th>振り返り記入</th><th>記入率</th><th>◎</th><th>○</th><th>△</th><th>日次平均</th><th>上長総評</th><th>月間評価</th></tr>';
+    mo.staff.forEach(s => {
+      const st = reportStats(s.id); const pct = st.work ? Math.round(st.filled / st.work * 100) : 0;
+      h += `<tr><td>${esc(s.name)}</td><td>${st.work}</td><td>${st.filled}</td><td class="${pct < 50 ? 'warn' : pct >= 90 ? 'hi' : ''}">${pct}%</td><td>${st.rc[3] || ''}</td><td>${st.rc[2] || ''}</td><td>${st.rc[1] || ''}</td><td>${st.avg != null ? st.avg.toFixed(2) : ''}</td><td>${st.hasMgr ? '済' : '<span style="color:#cbd5e1">未</span>'}</td><td>${st.rating ? `<b class="rt rt-${st.rating}">${st.rating}</b>` : '<span style="color:#cbd5e1">未</span>'}</td></tr>`;
+    });
     h += '</table></div></div></div>';
     $('#summaryContent').innerHTML = h;
   }
@@ -820,17 +827,163 @@
     rd.readAsText(file);
   }
 
+  // ---------- 月報 ----------
+  const RATINGS = ['S', 'A', 'B', 'C', 'D'];
+  const DAY_RATES = [{ v: 3, label: '◎', title: '良い' }, { v: 2, label: '○', title: '普通' }, { v: 1, label: '△', title: '要改善' }];
+  let reportStaffId = null;
+  function reportOf(id, create) {
+    const mo = month(true);
+    if (!mo.reports) mo.reports = {};
+    if (!mo.reports[id] && create) mo.reports[id] = { days: {}, self: '', mgrSummary: '', rating: '' };
+    return mo.reports[id] || { days: {}, self: '', mgrSummary: '', rating: '' };
+  }
+  function reportDay(id, d, create) {
+    const r = reportOf(id, create);
+    if (!r.days[d] && create) r.days[d] = {};
+    return r.days[d] || {};
+  }
+  function reportStats(id) {
+    const r = reportOf(id); const nd = daysIn(cur.y, cur.m);
+    let filled = 0, work = 0, rated = 0, sumRate = 0; const rc = { 3: 0, 2: 0, 1: 0 };
+    for (let d = 1; d <= nd; d++) {
+      const c = getCell(id, d); const isOff = c && typeOf(c.a) === 'off';
+      if (!isOff) work++;
+      const rd = r.days[d] || {};
+      if (rd.note && rd.note.trim()) filled++;
+      if (rd.rate) { rated++; sumRate += rd.rate; rc[rd.rate]++; }
+    }
+    return { filled, work, rated, avg: rated ? sumRate / rated : null, rc, hasMgr: !!(r.mgrSummary && r.mgrSummary.trim()), rating: r.rating || '' };
+  }
+  function renderReport() {
+    const mo = month(true);
+    if (!mo.staff.length) { $('#reportMain').innerHTML = '<div class="card" style="margin:14px">スタッフが登録されていません。</div>'; $('#reportStaffList').innerHTML = ''; return; }
+    if (!reportStaffId || !mo.staff.some(s => s.id === reportStaffId)) reportStaffId = mo.staff[0].id;
+    // 左: スタッフ一覧
+    $('#reportStaffList').innerHTML = mo.staff.map(s => {
+      const st = reportStats(s.id);
+      const pct = st.work ? Math.round(st.filled / st.work * 100) : 0;
+      return `<li class="${s.id === reportStaffId ? 'active' : ''}" data-id="${s.id}">
+        <span class="nm">${esc(s.name)}</span>
+        <span class="meta">${st.filled}/${st.work}日${st.rating ? ` <b class="rt rt-${st.rating}">${st.rating}</b>` : ''}</span>
+        <span class="bar"><i style="width:${pct}%"></i></span>
+      </li>`;
+    }).join('');
+    $$('#reportStaffList li').forEach(li => li.onclick = () => { reportStaffId = li.dataset.id; renderReport(); });
+    renderReportMain();
+  }
+  function renderReportMain() {
+    const mo = month(true); const s = mo.staff.find(x => x.id === reportStaffId); if (!s) return;
+    const nd = daysIn(cur.y, cur.m); const r = reportOf(s.id); const st = reportStats(s.id);
+    const cat = staffCategoryCounts(s.id);
+    const codesUsed = Object.entries(cat.byCode).sort((a, b) => b[1] - a[1]);
+    let h = `<div class="report-head">
+      <div><h2>${esc(s.name)} <small>${cur.y}年${cur.m}月 月報</small></h2>
+        <div class="report-kpis">
+          <span>出勤 <b>${st.work}</b>日</span><span>休み <b>${cat.off}</b>日</span>
+          <span>振り返り記入 <b>${st.filled}</b>/${st.work}日</span>
+          <span>日次評価 ◎${st.rc[3]} ○${st.rc[2]} △${st.rc[1]}</span>
+          ${st.avg != null ? `<span>平均 <b>${st.avg.toFixed(2)}</b></span>` : ''}
+        </div>
+        <div class="report-codes">${codesUsed.map(([k, n]) => `<span class="chip" style="background:${colorOf(k)}">${esc(k)} ${n}</span>`).join('')}</div>
+      </div>
+      <div class="report-actions no-print">
+        <button class="btn" id="reportExportBtn">この人をExcel書出</button>
+        <button class="btn" id="reportPrintBtn">印刷</button>
+      </div>
+    </div>`;
+    h += `<table class="report-table"><thead><tr><th class="c-d">日</th><th class="c-w">曜</th><th class="c-s">配置</th><th class="c-m">メモ</th><th class="c-n">活動の振り返り（本人）</th><th class="c-r">評価</th><th class="c-g">上長コメント</th></tr></thead><tbody>`;
+    for (let d = 1; d <= nd; d++) {
+      const w = dow(cur.y, cur.m, d); const c = getCell(s.id, d) || {}; const rd = r.days[d] || {};
+      const isOff = c.a && typeOf(c.a) === 'off';
+      const col = c.a ? colorOf(c.a) : '';
+      h += `<tr class="${w === 0 ? 'sun' : w === 6 ? 'sat' : ''} ${isOff ? 'off' : ''}" data-day="${d}">
+        <td class="c-d">${d}</td><td class="c-w">${DOW[w]}</td>
+        <td class="c-s"><span class="code" style="${col ? `background:${col}` : ''}">${esc(c.a || '')}</span></td>
+        <td class="c-m">${esc(c.n || '')}</td>
+        <td class="c-n"><textarea data-f="note" rows="1" placeholder="${isOff ? '' : '今日やったこと・気づき・課題など'}">${esc(rd.note || '')}</textarea></td>
+        <td class="c-r"><div class="rate-btns">${DAY_RATES.map(x => `<button data-rate="${x.v}" class="${rd.rate === x.v ? 'on' : ''}" title="${x.title}">${x.label}</button>`).join('')}</div></td>
+        <td class="c-g"><textarea data-f="mgr" rows="1" placeholder="">${esc(rd.mgr || '')}</textarea></td>
+      </tr>`;
+    }
+    h += '</tbody></table>';
+    h += `<div class="report-summary">
+      <div class="card"><h3>今月の総括（本人）</h3><textarea id="rSelf" rows="5" placeholder="今月の成果、うまくいったこと、課題、来月に向けて">${esc(r.self || '')}</textarea></div>
+      <div class="card"><h3>上長総評・月間評価</h3>
+        <div class="rating-row">月間評価：${RATINGS.map(x => `<button class="rt-btn rt-${x} ${r.rating === x ? 'on' : ''}" data-rating="${x}">${x}</button>`).join('')}<button class="rt-btn ${!r.rating ? 'on' : ''}" data-rating="">未評価</button></div>
+        <textarea id="rMgr" rows="4" placeholder="良かった点、改善してほしい点、期待すること">${esc(r.mgrSummary || '')}</textarea>
+      </div>
+    </div>`;
+    const main = $('#reportMain'); main.innerHTML = h;
+    // handlers
+    const autoGrow = ta => { ta.style.height = 'auto'; ta.style.height = (ta.scrollHeight + 2) + 'px'; };
+    $$('textarea', main).forEach(ta => { autoGrow(ta); ta.addEventListener('input', () => autoGrow(ta)); });
+    $$('tr[data-day] textarea', main).forEach(ta => {
+      ta.addEventListener('change', () => { const d = +ta.closest('tr').dataset.day; const rd = reportDay(s.id, d, true); rd[ta.dataset.f] = ta.value.trim(); save(); refreshReportSide(); });
+      ta.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); const rows = $$('tr[data-day]', main); const i = rows.indexOf(ta.closest('tr')); const nxt = rows[i + 1] && $(`textarea[data-f=${ta.dataset.f}]`, rows[i + 1]); if (nxt) { nxt.focus(); } } });
+    });
+    $$('.rate-btns button', main).forEach(b => b.onclick = () => { const d = +b.closest('tr').dataset.day; const rd = reportDay(s.id, d, true); const v = +b.dataset.rate; rd.rate = rd.rate === v ? 0 : v; save(); renderReport(); });
+    $('#rSelf').addEventListener('change', e => { reportOf(s.id, true).self = e.target.value.trim(); save(); });
+    $('#rMgr').addEventListener('change', e => { reportOf(s.id, true).mgrSummary = e.target.value.trim(); save(); refreshReportSide(); });
+    $$('.rating-row button', main).forEach(b => b.onclick = () => { reportOf(s.id, true).rating = b.dataset.rating; save(); renderReport(); });
+    $('#reportExportBtn').onclick = () => exportReportExcel([s]);
+    $('#reportPrintBtn').onclick = () => {
+      // 月報はA4縦で印刷（月間表はA3横のまま）
+      let st = $('#printPageStyle'); if (!st) { st = document.createElement('style'); st.id = 'printPageStyle'; document.head.appendChild(st); }
+      st.textContent = '@page { size: A4 portrait; margin: 10mm; }';
+      const cleanup = () => { st.textContent = ''; window.removeEventListener('afterprint', cleanup); };
+      window.addEventListener('afterprint', cleanup); window.print();
+    };
+  }
+  function refreshReportSide() { const keep = reportStaffId; const mo = month(true); const li = $(`#reportStaffList li[data-id="${keep}"]`); if (!li) return; const st = reportStats(keep); const pct = st.work ? Math.round(st.filled / st.work * 100) : 0; $('.meta', li).innerHTML = `${st.filled}/${st.work}日${st.rating ? ` <b class="rt rt-${st.rating}">${st.rating}</b>` : ''}`; $('.bar i', li).style.width = pct + '%'; }
+  function exportReportExcel(list) {
+    if (typeof XLSX === 'undefined') return toast('Excelライブラリが読み込めていません', true);
+    const nd = daysIn(cur.y, cur.m); const wb = XLSX.utils.book_new();
+    const border = { style: 'thin', color: { rgb: 'A6A6A6' } }; const B = { top: border, bottom: border, left: border, right: border };
+    const font = { name: 'Noto Sans JP', sz: 10 }; const fill = hex => ({ patternType: 'solid', fgColor: { rgb: hex.replace('#', '').toUpperCase() } });
+    const used = new Set();
+    list.forEach(s => {
+      const r = reportOf(s.id); const st = reportStats(s.id); const cat = staffCategoryCounts(s.id);
+      const ws = {}; const put = (rr, c, v, st2) => { ws[XLSX.utils.encode_cell({ r: rr, c })] = { v: v == null ? '' : v, t: typeof v === 'number' ? 'n' : 's', s: st2 || { font, border: B, alignment: { vertical: 'top', wrapText: true } } }; };
+      const hdr = { font: { ...font, bold: true }, border: B, fill: fill('#D9D9D9'), alignment: { horizontal: 'center', vertical: 'center' } };
+      put(0, 0, `${cur.y}年${cur.m}月 月報`, { font: { ...font, bold: true, sz: 14 } }); put(0, 2, '氏名'); put(0, 3, s.name, { font: { ...font, bold: true, sz: 12 } });
+      put(1, 0, `出勤 ${st.work}日 / 休み ${cat.off}日 / 振り返り記入 ${st.filled}日 / 日次評価 ◎${st.rc[3]} ○${st.rc[2]} △${st.rc[1]} / 月間評価 ${r.rating || '未評価'}`, { font });
+      const H = ['日', '曜', '配置', 'メモ', '活動の振り返り（本人）', '評価', '上長コメント']; H.forEach((x, i) => put(3, i, x, hdr));
+      let row = 4;
+      for (let d = 1; d <= nd; d++) {
+        const w = dow(cur.y, cur.m, d); const c = getCell(s.id, d) || {}; const rd = r.days[d] || {};
+        const base = { font, border: B, alignment: { vertical: 'top', wrapText: true }, fill: w === 0 ? fill('#FDE8E8') : w === 6 ? fill('#E8F0FE') : undefined };
+        put(row, 0, d, { ...base, alignment: { horizontal: 'center', vertical: 'top' } }); put(row, 1, DOW[w], { ...base, alignment: { horizontal: 'center', vertical: 'top' } });
+        put(row, 2, c.a || '', { ...base, fill: c.a ? fill(colorOf(c.a)) : base.fill, alignment: { horizontal: 'center', vertical: 'top' } });
+        put(row, 3, c.n || '', base); put(row, 4, rd.note || '', base);
+        put(row, 5, rd.rate ? DAY_RATES.find(x => x.v === rd.rate).label : '', { ...base, alignment: { horizontal: 'center', vertical: 'top' } }); put(row, 6, rd.mgr || '', base);
+        row++;
+      }
+      row++;
+      put(row, 0, '今月の総括（本人）', hdr); put(row, 1, r.self || '', { font, border: B, alignment: { vertical: 'top', wrapText: true } }); ws['!merges'] = [{ s: { r: row, c: 1 }, e: { r: row, c: 6 } }]; row++;
+      put(row, 0, '上長総評', hdr); put(row, 1, r.mgrSummary || '', { font, border: B, alignment: { vertical: 'top', wrapText: true } }); ws['!merges'].push({ s: { r: row, c: 1 }, e: { r: row, c: 6 } }); row++;
+      put(row, 0, '月間評価', hdr); put(row, 1, r.rating || '未評価', { font: { ...font, bold: true, sz: 12 }, border: B, alignment: { horizontal: 'center' } }); row++;
+      ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: row, c: 6 } });
+      ws['!cols'] = [{ wch: 4 }, { wch: 4 }, { wch: 13 }, { wch: 16 }, { wch: 48 }, { wch: 5 }, { wch: 36 }];
+      let name = s.name.replace(/[\\\/\?\*\[\]:]/g, '_').slice(0, 28); let k = 2; const b0 = name; while (used.has(name)) name = `${b0}_${k++}`; used.add(name);
+      XLSX.utils.book_append_sheet(wb, ws, name);
+    });
+    XLSX.writeFile(wb, `月報_${cur.y}${pad(cur.m)}${list.length === 1 ? '_' + list[0].name : ''}.xlsx`);
+    toast('月報を書き出しました');
+  }
+
   // ---------- views ----------
   function switchView(v) {
     view = v;
     $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === v));
-    ['grid', 'day', 'summary', 'settings'].forEach(k => $('#view-' + k).classList.toggle('hidden', k !== v));
+    ['grid', 'day', 'report', 'summary', 'settings'].forEach(k => $('#view-' + k).classList.toggle('hidden', k !== v));
     ed.close();
+    document.body.classList.toggle('print-report', v === 'report');
     renderView();
   }
   function renderView() {
     if (view === 'grid') { renderLegend(); renderGrid(); }
     else if (view === 'day') renderDay();
+    else if (view === 'report') renderReport();
     else if (view === 'summary') renderSummary();
     else renderSettings();
   }
@@ -859,7 +1012,7 @@
     $('#undoBtn').onclick = undo; $('#redoBtn').onclick = redo;
     $('#exportBtn').onclick = exportExcel;
     $('#importFile').onchange = e => { if (e.target.files[0]) importExcel(e.target.files[0]); e.target.value = ''; };
-    $('#printBtn').onclick = () => { if (view !== 'grid') switchView('grid'); setTimeout(() => window.print(), 100); };
+    $('#printBtn').onclick = () => { if (view === 'report') { $('#reportPrintBtn') && $('#reportPrintBtn').click(); return; } if (view !== 'grid') switchView('grid'); setTimeout(() => window.print(), 100); };
     $('#showNotes').onchange = renderGrid; $('#showCounts').onchange = renderGrid;
     $('#compactMode').onchange = e => { document.body.classList.toggle('compact', e.target.checked); localStorage.setItem('shiftapp.compact', e.target.checked ? '1' : ''); };
     if (localStorage.getItem('shiftapp.compact')) { $('#compactMode').checked = true; document.body.classList.add('compact'); }
@@ -876,8 +1029,9 @@
     $('#prevDay').onclick = () => shiftDay(-1); $('#nextDay').onclick = () => shiftDay(1);
     $('#dayPicker').onchange = e => { const [y, m, d] = e.target.value.split('-').map(Number); if (!y) return; if (y !== cur.y || m !== cur.m) { cur = { y, m }; ensureStaffForMonth(); } dayViewDate = { y, m, d }; renderAll(); };
     initEditor(); initKeys(); initSettings(); initSync();
+    $('#reportExportAllBtn').onclick = () => exportReportExcel(month(true).staff);
     init2();
-    const hv = (location.hash.match(/view=(grid|day|summary|settings)/) || [])[1];
+    const hv = (location.hash.match(/view=(grid|day|report|summary|settings)/) || [])[1];
     if (hv) switchView(hv);
     // クラウド同期: 起動時に読み込み、タブ復帰時にも確認、閉じる前に未送信があれば送信
     if (sync.on()) sync.pull(true);
