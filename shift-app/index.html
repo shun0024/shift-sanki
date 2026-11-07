@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>シフト表</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="シフト表">
+<meta name="theme-color" content="#2563eb">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar no-print">
+  <div class="brand">シフト表</div>
+  <div class="month-nav">
+    <button id="prevMonth" class="btn icon" title="前月">&#9664;</button>
+    <input type="month" id="monthPicker">
+    <button id="nextMonth" class="btn icon" title="翌月">&#9654;</button>
+    <button id="todayBtn" class="btn">今月</button>
+  </div>
+  <div class="view-switch">
+    <button class="tab active" data-view="grid">月間表</button>
+    <button class="tab" data-view="day">日別</button>
+    <button class="tab" data-view="summary">集計</button>
+    <button class="tab" data-view="settings">設定</button>
+  </div>
+  <div class="actions">
+    <span id="syncBadge" class="sync-badge hidden" title=""></span>
+    <button id="undoBtn" class="btn" title="元に戻す (Ctrl+Z)" disabled>戻す</button>
+    <button id="redoBtn" class="btn" title="やり直し (Ctrl+Y)" disabled>進む</button>
+    <label class="btn file-btn">Excel取込<input type="file" id="importFile" accept=".xlsx,.xls" hidden></label>
+    <button id="exportBtn" class="btn primary">Excel書出</button>
+    <button id="printBtn" class="btn">印刷</button>
+    <button id="menuBtn" class="btn icon" title="その他">&#8942;</button>
+  </div>
+</header>
+
+<div id="menuPopup" class="popup hidden no-print">
+  <button id="copyPrevBtn">前月のスタッフ構成をコピー</button>
+  <button id="clearMonthBtn">この月の予定を全消去</button>
+  <button id="backupBtn">バックアップ(JSON)を保存</button>
+  <label class="menu-file">バックアップ(JSON)を復元<input type="file" id="restoreFile" accept=".json" hidden></label>
+  <button id="resetBtn" class="danger">初期データに戻す</button>
+</div>
+
+<main id="app">
+  <!-- 月間表 -->
+  <section id="view-grid" class="view">
+    <div class="toolbar no-print">
+      <div class="legend" id="legend"></div>
+      <div class="toolbar-right">
+        <label class="chk"><input type="checkbox" id="showNotes" checked> メモ行を表示</label>
+        <label class="chk"><input type="checkbox" id="showCounts" checked> 配置人数を表示</label>
+        <label class="chk"><input type="checkbox" id="compactMode"> コンパクト</label>
+      </div>
+    </div>
+    <div class="grid-wrap" id="gridWrap"></div>
+  </section>
+
+  <!-- 日別 -->
+  <section id="view-day" class="view hidden">
+    <div class="day-nav no-print">
+      <button id="prevDay" class="btn icon">&#9664;</button>
+      <input type="date" id="dayPicker">
+      <button id="nextDay" class="btn icon">&#9654;</button>
+    </div>
+    <div id="dayContent"></div>
+  </section>
+
+  <!-- 集計 -->
+  <section id="view-summary" class="view hidden">
+    <div id="summaryContent"></div>
+  </section>
+
+  <!-- 設定 -->
+  <section id="view-settings" class="view hidden">
+    <div class="settings-grid">
+      <div class="card">
+        <h3>スタッフ（この月）</h3>
+        <p class="hint">ドラッグで並べ替え。グループは集計表の区切りに使われます。</p>
+        <ul id="staffList" class="sortable"></ul>
+        <div class="row"><input id="newStaffName" placeholder="氏名を追加"><button id="addStaffBtn" class="btn">追加</button></div>
+      </div>
+      <div class="card">
+        <h3>配置マスタ（選択肢と色）</h3>
+        <p class="hint">月間表のセルをクリックしたときの選択肢です。「表示略称」は月間表のセル内だけに使われ、Excel書出しや集計は正式名のままです。種別は集計に使われます。</p>
+        <ul id="codeList" class="sortable"></ul>
+        <div class="row">
+          <input id="newCodeName" placeholder="配置名を追加">
+          <input type="color" id="newCodeColor" value="#e0e0e0">
+          <select id="newCodeType">
+            <option value="office">事務所</option>
+            <option value="float">FLOAT</option>
+            <option value="pickup">平日集荷</option>
+            <option value="sunday">日曜集荷</option>
+            <option value="off">休み</option>
+            <option value="other">その他</option>
+          </select>
+          <button id="addCodeBtn" class="btn">追加</button>
+        </div>
+      </div>
+      <div class="card">
+        <h3>日別配置人数の目標</h3>
+        <p class="hint">月間表の下部に表示される行と、必要人数です。足りない日は赤、超過は青で表示されます。</p>
+        <ul id="targetList" class="sortable"></ul>
+        <div class="row">
+          <select id="newTargetCode"></select>
+          <input type="number" id="newTargetNum" min="0" value="1" style="width:60px">
+          <button id="addTargetBtn" class="btn">追加</button>
+        </div>
+      </div>
+      <div class="card">
+        <h3>クラウド同期（Googleスプレッドシート）</h3>
+        <p class="hint">複数の端末（会社PC・iPadなど）で同じデータを使うための設定です。Googleスプレッドシートに貼り付けた Apps Script のウェブアプリURLとトークンを入力してください。設定手順は同梱の <code>gas/SETUP.md</code> を参照。</p>
+        <div class="form">
+          <label>ウェブアプリURL<input id="syncUrl" placeholder="https://script.google.com/macros/s/....../exec"></label>
+          <label>トークン<input id="syncToken" placeholder="Code.gs の TOKEN と同じ文字列" type="password"></label>
+          <label class="chk"><input type="checkbox" id="syncEnabled"> 同期を有効にする（開いたとき自動で読み込み、編集後に自動保存）</label>
+          <div class="row">
+            <button id="syncTestBtn" class="btn">接続テスト</button>
+            <button id="syncSaveBtn" class="btn primary">保存</button>
+            <span style="flex:1"></span>
+            <button id="syncPullBtn" class="btn">今すぐ読み込み</button>
+            <button id="syncPushBtn" class="btn">今すぐ書き込み</button>
+          </div>
+          <p class="hint">状態: <span id="syncStatusText">未設定</span></p>
+        </div>
+      </div>
+      <div class="card">
+        <h3>データ</h3>
+        <p class="hint">データはこのブラウザ内（localStorage）に自動保存されます。クラウド同期を設定すると、他の端末からも同じデータを使えます。</p>
+        <p id="storageInfo" class="hint"></p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- セル編集ポップオーバー -->
+<div id="cellEditor" class="cell-editor hidden no-print">
+  <div class="ce-head"><span id="ceTitle"></span><button id="ceClose" class="btn icon">&#10005;</button></div>
+  <div class="ce-codes" id="ceCodes"></div>
+  <div class="ce-row">
+    <input id="ceCustom" placeholder="その他の配置を直接入力" list="codeDatalist">
+    <datalist id="codeDatalist"></datalist>
+  </div>
+  <div class="ce-row">
+    <input id="ceNote" placeholder="メモ（コース名など）" list="noteDatalist">
+    <datalist id="noteDatalist"></datalist>
+  </div>
+  <div class="ce-foot">
+    <button id="ceClear" class="btn">消去</button>
+    <span class="hint">Enter=決定 / Esc=閉じる / Tab=次の日へ</span>
+    <button id="ceOk" class="btn primary">決定</button>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="vendor/xlsx.bundle.js"></script>
+<script src="seed.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
