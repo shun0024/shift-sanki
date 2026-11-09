@@ -285,9 +285,10 @@ table.report-table { width: 100%; border-collapse: collapse; background: var(--p
 table.appr-table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); }
 .appr-table th, .appr-table td { border: 1px solid var(--line); padding: 5px 6px; font-size: 12px; vertical-align: top; }
 .appr-table th { background: #f8fafc; font-weight: 600; text-align: center; position: sticky; top: 48px; z-index: 2; }
-.appr-table td.c-g { width: 26px; background: #fff7e6; text-align: center; vertical-align: middle; padding: 0; }
-.appr-table td.c-g .vt { writing-mode: vertical-rl; letter-spacing: .3em; font-weight: 700; font-size: 12px; display: inline-block; padding: 8px 0; }
+.appr-table td.c-g { width: 30px; min-width: 30px; max-width: 30px; background: #fff7e6; text-align: center; vertical-align: middle; padding: 0; }
+.appr-table td.c-g .vt { display: inline-block; writing-mode: vertical-rl; text-orientation: upright; white-space: nowrap; letter-spacing: .15em; font-weight: 700; font-size: 13px; line-height: 30px; color: #92400e; }
 .appr-table td.c-c { width: 78px; background: #f8fafc; font-weight: 600; vertical-align: middle; text-align: center; }
+.appr-table td.c-c { writing-mode: vertical-rl; text-orientation: upright; width: 34px; min-width: 34px; max-width: 34px; letter-spacing: .1em; line-height: 34px; padding: 10px 0; white-space: nowrap; }
 .appr-table .c-i { width: 90px; }
 .appr-table .c-q { width: 22%; color: #374151; }
 .appr-table .c-q .desc-btn { display: block; margin-top: 4px; border: 1px solid var(--line); background: #fff; color: var(--muted); border-radius: 4px; font-size: 10px; padding: 1px 6px; cursor: pointer; }
