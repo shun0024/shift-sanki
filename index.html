@@ -182,16 +182,14 @@
   <div class="ce-head"><span id="ceTitle"></span><button id="ceClose" class="btn icon">&#10005;</button></div>
   <div class="ce-codes" id="ceCodes"></div>
   <div class="ce-row">
-    <input id="ceCustom" placeholder="その他の配置を直接入力" list="codeDatalist">
-    <datalist id="codeDatalist"></datalist>
+    <input id="ceCustom" placeholder="その他の配置を直接入力" autocomplete="off">
   </div>
   <div class="ce-row">
-    <input id="ceNote" placeholder="メモ（コース名など）" list="noteDatalist">
-    <datalist id="noteDatalist"></datalist>
+    <input id="ceNote" placeholder="メモ（コース名など）" autocomplete="off">
   </div>
   <div class="ce-foot">
     <button id="ceClear" class="btn">消去</button>
-    <span class="hint">Enter=決定 / Esc=閉じる / Tab=次の日へ</span>
+    <span class="hint">配置を選んでから「決定」 / Enter=決定 / Esc=取消 / Tab=次の日へ</span>
     <button id="ceOk" class="btn primary">決定</button>
   </div>
 </div>

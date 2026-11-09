@@ -390,7 +390,8 @@
       $('#ceTitle').textContent = `${s ? s.name : ''}  ${cur.m}/${day}(${DOW[dow(cur.y, cur.m, day)]})`;
       $('#ceCodes').innerHTML = state.codes.map(cd =>
         `<button data-code="${esc(cd.name)}" class="${c.a === cd.name ? 'current' : ''}" style="background:${cd.color};color:${textColor(cd.color)}">${esc(cd.name)}</button>`).join('');
-      $$('#ceCodes button').forEach(b => b.onclick = () => { $('#ceCustom').value = b.dataset.code; this.commit(true); });
+      // 配置ボタンは「選ぶだけ」。確定は決定ボタン／Enter で行う
+      $$('#ceCodes button').forEach(b => b.onclick = () => { $('#ceCustom').value = b.dataset.code; this.markCurrent(); $('#ceNote').focus(); });
       $('#ceCustom').value = c.a || '';
       $('#ceNote').value = c.n || '';
       this.el.classList.remove('hidden');
@@ -399,6 +400,7 @@
       (focusNote ? $('#ceNote') : $('#ceCustom')).select();
       highlightSel();
     },
+    markCurrent() { const v = $('#ceCustom').value.trim(); $$('#ceCodes button').forEach(b => b.classList.toggle('current', b.dataset.code === v)); },
     position() {
       const td = $(`td.cell[data-id="${this.id}"][data-day="${this.day}"][data-kind="a"]`);
       if (!td) return;
@@ -441,6 +443,7 @@
     $('#ceClear').onclick = () => ed.clear();
     ['#ceCustom', '#ceNote'].forEach(sl => {
       $(sl).addEventListener('keydown', e => {
+        if (e.isComposing || e.keyCode === 229) return;  // 日本語変換中は何もしない
         if (e.key === 'Enter') { e.preventDefault(); ed.commit(true); }
         else if (e.key === 'Escape') { e.preventDefault(); ed.close(); }
         else if (e.key === 'Tab') { e.preventDefault(); ed.move(e.shiftKey ? -1 : 1, 0); }
@@ -448,22 +451,20 @@
         else if (e.key === 'ArrowUp' && e.altKey) { e.preventDefault(); ed.move(0, -1); }
       });
     });
+    // 配置の直接入力欄: 入力に合わせて配置ボタンのハイライトを更新
+    $('#ceCustom').addEventListener('input', () => ed.markCurrent());
+    // 外側クリックは確定せずに閉じる（確定は決定ボタン／Enter のみ）
     document.addEventListener('mousedown', e => {
       if (ed.el.classList.contains('hidden')) return;
-      if (ed.el.contains(e.target) || e.target.closest('td.cell')) return;
-      ed.commit(true);
+      if (ed.el.contains(e.target) || (e.target.closest && e.target.closest('td.cell'))) return;
+      ed.close();
     });
     window.addEventListener('resize', () => { if (!ed.el.classList.contains('hidden')) ed.position(); });
     $('#gridWrap').addEventListener('scroll', () => { if (!ed.el.classList.contains('hidden')) ed.position(); });
     // datalists
     refreshDatalists();
   }
-  function refreshDatalists() {
-    $('#codeDatalist').innerHTML = state.codes.map(c => `<option value="${esc(c.name)}">`).join('');
-    const notes = new Set();
-    Object.values(state.months).forEach(mo => Object.values(mo.shifts).forEach(sh => Object.values(sh).forEach(c => { if (c.n) notes.add(c.n); })));
-    $('#noteDatalist').innerHTML = Array.from(notes).sort().map(n => `<option value="${esc(n)}">`).join('');
-  }
+  function refreshDatalists() { /* 予測候補（datalist）は日本語入力の妨げになるため廃止 */ }
 
   // ---------- keyboard on grid ----------
   function initKeys() {
