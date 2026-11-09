@@ -32,7 +32,7 @@
   const DEFAULT_TARGETS = [
     { code: '豊洲①', num: 2, sun: 0 },
     { code: '豊洲②', num: 1, sun: 0 },
-    { code: '豊洲・KFT', num: 1, sun: 0 },
+    { code: '豊洲・KFT', num: 1, sun: 0, satCode: '豊洲応援', closedCode: 'キッコーマン' },
     { code: 'Proximar', num: null, sun: null },
     { code: '霞ヶ浦C', num: 1, sun: 0 },
     { code: '営業臨時回収', num: null, sun: null },
@@ -98,6 +98,8 @@
             state.codes.forEach(c => { const d = DEFAULT_CODES.find(x => x.name === c.name); if (d) { c.color = d.color; if (!c.short) c.short = d.short; } });
             state.palette = PALETTE_VERSION;
           }
+          // 既存データへの一度きりの移行: 豊洲・KFT の土曜/休市日の代替配置
+          if (!state.targetsV2) { (state.targets || []).forEach(t => { if (t.code === '豊洲・KFT' && t.satCode == null && t.closedCode == null) { t.satCode = '豊洲応援'; t.closedCode = 'キッコーマン'; } }); state.targetsV2 = 1; }
           return;
         }
       }
@@ -335,8 +337,15 @@
   function dayMark(y, m, d) { const i = dayInfo(y, m, d); if (i.company) return '休'; if (i.closed) return i.special === '臨時休市' ? '臨' : '市'; if (i.special === '臨時開市') return '開'; return ''; }
 
   function targetFor(t, d) { return dow(cur.y, cur.m, d) === 0 ? t.sun : t.num; }
+  // その日に実際に数える配置名（休市日→closedCode、土曜→satCode、それ以外→code）
+  function targetCode(t, d) {
+    if (t.closedCode && dayInfo(cur.y, cur.m, d).closed) return t.closedCode;
+    if (t.satCode && dow(cur.y, cur.m, d) === 6) return t.satCode;
+    return t.code;
+  }
+  function targetCount(t, d) { return countCodeOnDay(targetCode(t, d), d); }
   function targetClass(t, d) {
-    const need = targetFor(t, d), n = countCodeOnDay(t.code, d);
+    const need = targetFor(t, d), n = targetCount(t, d);
     if (need == null || need === '') return n ? 'info' : '';
     if (n < need) return 'under'; if (n > need) return 'over'; return 'ok';
   }
@@ -411,9 +420,9 @@
         const col = colorOf(t.code);
         h += `<tr class="count ${i === 0 ? 'first' : ''}"><td class="name" style="background:${col};color:${textColor(col)}">${esc(t.code)}</td>`;
         for (let d = 1; d <= nd; d++) {
-          const n = countCodeOnDay(t.code, d); const need = targetFor(t, d);
-          const cls = targetClass(t, d);
-          h += `<td class="${cls} ${dcls(d)}" title="${need == null ? '' : '必要 ' + need}">${n}${need == null || need === '' ? '' : `<small style="opacity:.55">/${need}</small>`}</td>`;
+          const tc = targetCode(t, d); const n = countCodeOnDay(tc, d); const need = targetFor(t, d);
+          const cls = targetClass(t, d); const alt = tc !== t.code;
+          h += `<td class="${cls} ${dcls(d)} ${alt ? 'alt' : ''}" style="${alt ? `box-shadow: inset 0 3px 0 ${colorOf(tc)}` : ''}" title="${alt ? `${tc} を集計` : ''}${need == null ? '' : (alt ? ' / ' : '') + '必要 ' + need}">${n}${need == null || need === '' ? '' : `<small style="opacity:.55">/${need}</small>`}</td>`;
         }
         h += '<td class="total" colspan="2"></td></tr>';
       });
@@ -618,13 +627,13 @@
     const badges = [di.company ? '<span class="dbadge cooff">当社定休</span>' : '', di.closed ? `<span class="dbadge closed">${di.special === '臨時休市' ? '臨時休市' : '休市'}</span>` : di.special === '臨時開市' ? '<span class="dbadge open">臨時開市</span>' : (di.hasData ? '<span class="dbadge open">開市</span>' : ''), di.note ? `<span class="dbadge note">${esc(di.note)}</span>` : ''].join('');
     let h = `<div class="day-wrap"><div class="card"><h3>${cur.m}月${d}日 (${DOW[dow(cur.y, cur.m, d)]}) ${badges} 配置別<small>${mo.staff.length}名</small></h3><div class="group-by-code">`;
     order.forEach(k => {
-      const t = state.targets.find(x => x.code === k); const need = t ? targetFor(t, d) : null;
+      const t = state.targets.find(x => targetCode(x, d) === k); const need = t ? targetFor(t, d) : null;
       const list = byCode[k]; const under = need != null && need !== '' && list.length < need;
       const col = k === '（未入力）' ? '#f1f5f9' : colorOf(k);
       h += `<div class="gcode ${under ? 'under' : ''}"><div class="gname" style="background:${col};color:${textColor(col)}">${esc(k)}</div><div class="gmembers">${list.map(x => `<span>${esc(x.s.name)}${x.c && x.c.n ? ` <small>(${esc(x.c.n)})</small>` : ''}</span>`).join('')}</div><div class="gcount">${list.length}${need != null && need !== '' ? ' / ' + need : ''}名</div></div>`;
     });
     // 目標に足りない配置（0名）
-    state.targets.forEach(t => { const need = targetFor(t, d); if (need && !byCode[t.code]) { const col = colorOf(t.code); h += `<div class="gcode under"><div class="gname" style="background:${col};color:${textColor(col)}">${esc(t.code)}</div><div class="gmembers" style="color:#dc2626">配置なし</div><div class="gcount">0 / ${need}名</div></div>`; } });
+    state.targets.forEach(t => { const need = targetFor(t, d); const tc = targetCode(t, d); if (need && !byCode[tc]) { const col = colorOf(tc); h += `<div class="gcode under"><div class="gname" style="background:${col};color:${textColor(col)}">${esc(tc)}</div><div class="gmembers" style="color:#dc2626">配置なし</div><div class="gcount">0 / ${need}名</div></div>`; } });
     h += '</div></div>';
     h += `<div class="card"><h3>スタッフ別</h3><ul class="day-list">`;
     mo.staff.forEach(s => {
@@ -670,10 +679,11 @@
     for (let d = 1; d <= nd; d++) h += `<th style="${dow(cur.y, cur.m, d) === 0 ? 'color:#dc2626' : dow(cur.y, cur.m, d) === 6 ? 'color:#2563eb' : ''}">${d}<br><small>${DOW[dow(cur.y, cur.m, d)]}</small></th>`;
     h += '</tr>';
     codesSorted.forEach(k => {
-      const col = colorOf(k); const t = state.targets.find(x => x.code === k);
+      const col = colorOf(k);
       h += `<tr><td style="background:${col};color:${textColor(col)}">${esc(k)}</td>`;
       for (let d = 1; d <= nd; d++) {
         const n = countCodeOnDay(k, d); let cls = n ? '' : 'zero';
+        const t = state.targets.find(x => targetCode(x, d) === k);
         if (t) { const c = targetClass(t, d); if (c === 'under') cls = 'warn'; else if (c === 'over') cls = 'hi'; }
         h += `<td class="${cls}">${n}</td>`;
       }
@@ -728,11 +738,14 @@
     makeSortable(cl, order => { state.codes = order.map(i => state.codes[+i]); save(); renderAll(); });
     // targets
     const tl = $('#targetList');
-    tl.innerHTML = state.targets.map((t, i) => { const col = colorOf(t.code); return `<li draggable="true" data-id="${i}"><span class="grip">&#8942;&#8942;</span><span class="swatch" style="background:${col}"></span><span style="flex:1">${esc(t.code)}</span><label>平日 <input type="number" min="0" style="width:52px" value="${t.num == null ? '' : t.num}" data-f="num" placeholder="-"></label><label>日曜 <input type="number" min="0" style="width:52px" value="${t.sun == null ? '' : t.sun}" data-f="sun" placeholder="-"></label><button class="del" title="削除">&#10005;</button></li>`; }).join('');
+    const codeOpts = sel => `<option value="">（同じ）</option>` + state.codes.map(c => `<option value="${esc(c.name)}" ${sel === c.name ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
+    tl.innerHTML = state.targets.map((t, i) => { const col = colorOf(t.code); return `<li draggable="true" data-id="${i}" class="target-item"><div class="trow"><span class="grip">&#8942;&#8942;</span><span class="swatch" style="background:${col}"></span><span style="flex:1">${esc(t.code)}</span><label>平日 <input type="number" min="0" style="width:52px" value="${t.num == null ? '' : t.num}" data-f="num" placeholder="-"></label><label>日曜 <input type="number" min="0" style="width:52px" value="${t.sun == null ? '' : t.sun}" data-f="sun" placeholder="-"></label><button class="del" title="削除">&#10005;</button></div><div class="trow sub"><span class="hint">代わりに数える配置：</span><label>土曜 <select data-f="satCode">${codeOpts(t.satCode)}</select></label><label>休市日 <select data-f="closedCode">${codeOpts(t.closedCode)}</select></label></div></li>`; }).join('');
     $$('li', tl).forEach(li => {
       const t = state.targets[+li.dataset.id];
       $('[data-f=num]', li).onchange = e => { t.num = e.target.value === '' ? null : +e.target.value; save(); renderGrid(); };
       $('[data-f=sun]', li).onchange = e => { t.sun = e.target.value === '' ? null : +e.target.value; save(); renderGrid(); };
+      $('[data-f=satCode]', li).onchange = e => { if (e.target.value) t.satCode = e.target.value; else delete t.satCode; save(); renderGrid(); };
+      $('[data-f=closedCode]', li).onchange = e => { if (e.target.value) t.closedCode = e.target.value; else delete t.closedCode; save(); renderGrid(); };
       $('.del', li).onclick = () => { state.targets.splice(+li.dataset.id, 1); save(); renderSettings(); renderGrid(); };
     });
     makeSortable(tl, order => { state.targets = order.map(i => state.targets[+i]); save(); renderSettings(); renderGrid(); });
@@ -813,9 +826,9 @@
       put(r, 1, t.code, { font: { ...font, bold: true }, alignment: center, border: B, fill: fill(col) });
       for (let d = 1; d <= nd; d++) {
         const L = colL(d + 1);
-        const n = countCodeOnDay(t.code, d); const cls = targetClass(t, d);
+        const tc = targetCode(t, d); const n = countCodeOnDay(tc, d); const cls = targetClass(t, d);
         const f = cls === 'under' ? 'FFC7CE' : cls === 'over' ? 'BDD7EE' : cls === 'ok' ? 'E2F0D9' : null;
-        put(r, d + 1, n, { font, alignment: center, border: B, fill: f ? fill(f) : undefined }, 'n', `COUNTIF(${L}4:${L}${lastStaffRow + 1},"${t.code}")`);
+        put(r, d + 1, n, { font, alignment: center, border: B, fill: f ? fill(f) : undefined }, 'n', `COUNTIF(${L}4:${L}${lastStaffRow + 1},"${tc}")`);
       }
       r++;
     });

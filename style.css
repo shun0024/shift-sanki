@@ -350,6 +350,12 @@ table.sum { border-collapse: collapse; width: 100%; }
   border-radius: 6px; margin-bottom: 4px; background: #fff; cursor: grab;
 }
 .sortable li.dragging { opacity: .4; }
+.sortable li.target-item { flex-direction: column; align-items: stretch; gap: 3px; }
+.sortable li.target-item .trow { display: flex; align-items: center; gap: 6px; }
+.sortable li.target-item .trow.sub { padding-left: 24px; font-size: 11px; color: var(--muted); }
+.sortable li.target-item .trow.sub label { display: flex; align-items: center; gap: 4px; }
+.sortable li.target-item .trow.sub select { font-size: 11px; padding: 2px; max-width: 120px; }
+.grid tr.count td.alt { position: relative; }
 .sortable li .grip { color: #94a3b8; cursor: grab; }
 .sortable li input[type=text] { flex: 1 1 0; min-width: 0; border: 1px solid transparent; padding: 3px 6px; border-radius: 4px; }
 .sortable li input[type=text]:hover, .sortable li input[type=text]:focus { border-color: var(--line); }
