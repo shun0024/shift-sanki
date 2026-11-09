@@ -30,6 +30,7 @@
     <button class="tab active" data-view="grid">月間表</button>
     <button class="tab" data-view="day">日別</button>
     <button class="tab" data-view="report">月報</button>
+    <button class="tab" data-view="appraisal">考課</button>
     <button class="tab" data-view="summary">集計</button>
     <button class="tab" data-view="settings">設定</button>
   </div>
@@ -87,6 +88,24 @@
         </div>
       </aside>
       <div class="report-main" id="reportMain"></div>
+    </div>
+  </section>
+
+  <!-- 人事考課 -->
+  <section id="view-appraisal" class="view hidden">
+    <div class="report-layout appr-layout">
+      <aside class="report-side no-print">
+        <div class="report-side-head">評価期間</div>
+        <div class="appr-period">
+          <input type="month" id="apprFrom" title="開始月"><span>〜</span><input type="month" id="apprTo" title="終了月">
+        </div>
+        <div class="report-side-head">スタッフ</div>
+        <ul id="apprStaffList" class="report-staff"></ul>
+        <div class="report-side-foot">
+          <button id="apprExportAllBtn" class="btn">全員分をExcel書出</button>
+        </div>
+      </aside>
+      <div class="report-main" id="apprMain"></div>
     </div>
   </section>
 

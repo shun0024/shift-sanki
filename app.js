@@ -570,10 +570,10 @@
     });
     h += '</table></div></div>';
     // 4) 月報集計
-    h += '<div class="card"><h3>月報集計<small>振り返りの記入状況と評価</small></h3><div class="sum-wrap-scroll"><table class="sum"><tr><th>氏名</th><th>出勤</th><th>振り返り記入</th><th>記入率</th><th>◎</th><th>○</th><th>△</th><th>日次平均</th><th>上長総評</th><th>月間評価</th></tr>';
+    h += '<div class="card"><h3>月報集計<small>振り返りの記入状況と評価</small></h3><div class="sum-wrap-scroll"><table class="sum"><tr><th>氏名</th><th>出勤</th><th>振り返り記入</th><th>記入率</th><th>◎</th><th>○</th><th>△</th><th>×</th><th>日次平均</th><th>考課タグ日</th><th>上長総評</th><th>月間評価</th></tr>';
     mo.staff.forEach(s => {
       const st = reportStats(s.id); const pct = st.work ? Math.round(st.filled / st.work * 100) : 0;
-      h += `<tr><td>${esc(s.name)}</td><td>${st.work}</td><td>${st.filled}</td><td class="${pct < 50 ? 'warn' : pct >= 90 ? 'hi' : ''}">${pct}%</td><td>${st.rc[3] || ''}</td><td>${st.rc[2] || ''}</td><td>${st.rc[1] || ''}</td><td>${st.avg != null ? st.avg.toFixed(2) : ''}</td><td>${st.hasMgr ? '済' : '<span style="color:#cbd5e1">未</span>'}</td><td>${st.rating ? `<b class="rt rt-${st.rating}">${st.rating}</b>` : '<span style="color:#cbd5e1">未</span>'}</td></tr>`;
+      h += `<tr><td>${esc(s.name)}</td><td>${st.work}</td><td>${st.filled}</td><td class="${pct < 50 ? 'warn' : pct >= 90 ? 'hi' : ''}">${pct}%</td><td>${st.rc[3] || ''}</td><td>${st.rc[2] || ''}</td><td>${st.rc[1] || ''}</td><td class="${st.rc[-1] ? 'warn' : ''}">${st.rc[-1] || ''}</td><td>${st.avg != null ? st.avg.toFixed(2) : ''}</td><td>${st.tagged || ''}</td><td>${st.hasMgr ? '済' : '<span style="color:#cbd5e1">未</span>'}</td><td>${st.rating ? `<b class="rt rt-${st.rating}">${st.rating}</b>` : '<span style="color:#cbd5e1">未</span>'}</td></tr>`;
     });
     h += '</table></div></div></div>';
     $('#summaryContent').innerHTML = h;
@@ -829,8 +829,35 @@
 
   // ---------- 月報 ----------
   const RATINGS = ['S', 'A', 'B', 'C', 'D'];
-  const DAY_RATES = [{ v: 3, label: '◎', title: '良い' }, { v: 2, label: '○', title: '普通' }, { v: 1, label: '△', title: '要改善' }];
+  const DAY_RATES = [{ v: 3, label: '◎', title: '良い' }, { v: 2, label: '○', title: '普通' }, { v: 1, label: '△', title: '要改善' }, { v: -1, label: '×', title: '問題あり' }];
+  const RATE_LABEL = v => { const x = DAY_RATES.find(r => r.v === v); return x ? x.label : ''; };
+  const RATE_SCORE = { 3: 3, 2: 2, 1: 1, '-1': 0 };
   let reportStaffId = null;
+
+  // ---------- 人事考課 項目マスタ（人事考課表.xlsx 評価表シートより） ----------
+  const APPR_ITEMS = [
+    { id: 'understand', group: '基礎項目', cat: '仕事のプロセス', name: '理解', short: '理解', q: '上司の指示を的確に理解し、先回りして行動することができているか？', desc: 'ある仕事について、命じる側がその目的と目標・実行方法・完了期限を命じられる側に理解できるよう指示しなければなりません。そのうえで命じられた側はその内容をしっかりと理解し、仕事の目的に沿って十分な結果を達成するよう行動しなければなりません。また、命じられた側に「痒いところに手が届く」ような仕事ぶりが見られれば、それも評価に値します。逆に命令違反や命令にそぐわないプロセスがあればマイナス評価となります。この項目および下記２つの項目はプロセスの評価なので、結果が不十分であっても構いません。' },
+    { id: 'horenso', group: '基礎項目', cat: '仕事のプロセス', name: '報連相', short: '報連相', q: '仕事の途中で上司や周辺への経過報告・必要事項の連絡・相談はあったか？', desc: '「ただ言われた通りにやっています」は最低限の要件です。開始当初と状況が変化することもあるので、上司や周辺への途中経過の報告や協力してもらうための連絡や相談は必要です。' },
+    { id: 'attitude', group: '基礎項目', cat: '仕事のプロセス', name: '仕事に向き合う姿勢・態度', short: '姿勢・態度', q: '勤務時間中は常に前向きに仕事を進める姿勢・態度であったか？', desc: '勤務時間中は休憩時間を除いて業務に集中する義務があります。積極的に仕事に取り組む姿勢や態度が職場にも良い影響を与えるとともに、工夫や改善が自分自身の成長につながっていきます。「さぼり」は言語道断です。' },
+    { id: 'time', group: '基礎項目', cat: '仕事の結果', name: '時間', short: '時間', q: '仕事が完了するまでの時間は、上司の指示や期待された期限を満たすものであったか？', desc: '指示された期限や納期を守ることが重要です。示された納期がぼんやりとしたものであっても、上司に確認しながら、その業務を早く完了させる姿勢が求められます。' },
+    { id: 'quality', group: '基礎項目', cat: '仕事の結果', name: '出来栄え', short: '出来栄え', q: '完了した仕事の出来栄えは指示・要求を満たすものであったか？', desc: '仕事の結果（成果物）が目的と目標を満たすものであったかに正確性も加味して評価します。要求あるいは期待以上の出来栄えであればさらにプラス評価に値します。ただし、上記の「時間」とは別の評価軸となることに注意が必要です。' },
+    { id: 'responsibility', group: '行動指針項目', cat: '責任', name: '責任感', short: '責任感', q: '他者や外的要因に責任転嫁をせず、自ら責任感をもって仕事に取り組む姿勢であったか？', desc: '与えられた業務に対して、解決につながらない言い訳をせずに自らの責任感で最後まで取り組む姿勢を評価します。必ずしも独力で業務を完結することを指しておらず、たとえ他者の協力を要請したとしても、自らが先頭に立ってその業務に取り組み、投げ出すような姿勢がなければ評価に値します。' },
+    { id: 'sincerity', group: '行動指針項目', cat: '責任', name: '誠実', short: '誠実', q: '手待ち時間を含めて、手を抜かずに誠実にまじめに仕事に取り組んでいたか？', desc: '「人が見ていなければ、何をしてもよい」という考え方が最悪の評価となります。手待ち時間であっても、その間に準備や他の作業ができることもあります。自分のやれることをしっかりやる、という姿勢を評価します。（ただし、その人の能力を超えたことを要求しても、できないものは無理です。）' },
+    { id: 'find', group: '行動指針項目', cat: '課題解決', name: '課題発見', short: '課題発見', q: '自主的に仕事上の課題を発見し提案する姿勢や行動が見られたか？', desc: '業務効率（時間短縮、人員削減等）の改善、利益増大、コスト削減、安全性の向上、職場環境の改善、等々につながる課題となる事項を自分の業務の中から発見し、周辺や上司と共有して一緒に解決していこうという姿勢や行動を評価します。ただの言いっぱなし、では最高評価は与えられません。' },
+    { id: 'solve', group: '行動指針項目', cat: '課題解決', name: '課題解決', short: '課題解決', q: '仕事上の課題に対して諦めずに解決しようとする姿勢が見られたか？', desc: '与えられた課題、あるいは自ら発見した課題に対して、粘り強く諦めずに解決しようとしているか、を評価します。様々な手法を試したり、周辺にアドバイスをもらったり、自らが工夫している姿勢が重要です。仕事の結果とは関係ない評価項目です。' },
+    { id: 'challenge', group: '行動指針項目', cat: '挑戦', name: '挑戦する姿勢', short: '挑戦', q: '未経験の仕事・領域に対しても臆せず挑戦する姿勢が見られたか？', desc: '未経験だから、知らないから、と尻込みすることはよくあることです。そのうえでも「やってみます」という積極的な姿勢を評価します。ただし、やみくもに挑戦するのではなく、手順を考えてから実行する姿勢も必要です。これも仕事の結果とは無関係な評価項目です。' },
+    { id: 'flexible', group: '行動指針項目', cat: '挑戦', name: '既成概念', short: '既成概念', q: '過去の経験のみに縛られず、柔軟に対応することができるか？', desc: '自らの経験や正しい知識に基づく行動は重要ですが、既成概念に縛られて一言目が「できません」では本人や会社の成長につながりません。こうやればできるかな、という柔軟なポジティブシンキングを評価します。' },
+    { id: 'newvalue', group: '行動指針項目', cat: '挑戦', name: '新しい価値', short: '新しい価値', q: '会社の業務改善など新しい価値を創造する提案ができているか？', desc: '現在の自分の仕事を離れた位置から、会社の事業全体を俯瞰して捉え、業務改善や利益改善、新規事業の提案などができているか、を評価します。経営目線に近い、かなり高いレベルの考え方が必要となります。' },
+    { id: 'trust', group: '行動指針項目', cat: '信頼', name: '信頼関係', short: '信頼関係', q: '発言・行動に信頼感があるか？他の従業員と信頼関係が築けているか？', desc: '上司から見て信頼できる行動や発言をしているか、他の従業員との関係を観察したときに、仕事上の信頼関係がしっかり築けているか、を評価します。単に「仲が良い」「友人関係」ということを評価するのではありません。' },
+    { id: 'communication', group: '行動指針項目', cat: '信頼', name: 'コミュニケーション', short: 'ｺﾐｭﾆｹｰｼｮﾝ', q: '他の従業員とコミュニケーションを積極的にとっているか？', desc: '挨拶を含め、組織の中で報連相ができているかを評価します。報連相は上司・部下の間だけではありません。チャットを含めた仕事上のコミュニケーションであって、おしゃべりをしていることを評価するのではありません。' },
+    { id: 'care', group: '行動指針項目', cat: '信頼', name: '思いやり', short: '思いやり', q: '他の従業員に対して職場の仲間としての思いやりをもった行動・発言ができているか？', desc: 'すべては従業員同士がお互いを人間として尊重することから始まります。ポジティブコミュニケーションがとれていれば評価は高くなります。誹謗中傷（直接的・間接的）、挨拶をしない、無視する、助け合わない、等はありませんか？他の従業員に対する態度に問題があれば評価は低くなります。' },
+    { id: 'collab', group: '行動指針項目', cat: '信頼', name: '協業', short: '協業', q: '他の従業員と協力して業務に取り組み、共に目標を達成しようとする姿勢・態度が見られたか？', desc: '自分単独でできる仕事もありますが、仕事を自分だけで抱え込んではいけません。独善的にならず、会社としての目標を共有し、他の従業員と協力しながら同じ方向に進んでいこうとする姿勢や態度を評価します。他の従業員の業務を積極的に手伝う姿勢も評価に加えます。' },
+    { id: 'env5s', group: '行動指針項目', cat: 'ウェルビーイング', name: '環境改善', short: '環境改善', q: '５S活動など職場の環境を改善する行動がとれているか？', desc: '例えば、命令されなくても、積極的に職場の清掃をしている、棚の整理整頓をして他の人が工具を使いやすいようにしている、書類の分類をして他の人が発見しやすいようにしている、など他の人が働きやすいように考えて行動していることを評価します。逆に片づけをしない、ゴミを見ても知らんふり、などは評価が下がります。' },
+    { id: 'contribute', group: '行動指針項目', cat: 'ウェルビーイング', name: '周辺への貢献', short: '周辺貢献', q: '自分の本来の業務以外にも会社や社会に貢献する姿勢・行動が見られたか？', desc: '会社の周辺環境に配慮し、騒音や悪臭の発生につながらないよう仕事を進める姿勢や地域社会・地球環境に配慮した行動が見られれば評価に加算します。会社や社会に迷惑を掛けないだけでなく、どれだけ役に立つかを考えて行動することが重要です。' },
+    { id: 'conduct', group: '行動指針項目', cat: 'ウェルビーイング', name: '勤務態度', short: '勤務態度', q: '他の従業員の仕事の妨害となったり、職場の雰囲気を乱したり、他の従業員に悪影響を与えていないか？周辺の従業員の手本となるような行動や態度をとっているか？', desc: 'ウェルビーイングとは、身体的、精神的、そして社会的に「満たされた良好な状態」を指します。その人の働きぶりや態度・発言が周りの従業員に好影響を与えていれば高い評価となります。逆にこのウェルビーイングに反する行動や態度は低い評価につながります。' },
+  ];
+  const APPR_ITEM = Object.fromEntries(APPR_ITEMS.map(i => [i.id, i]));
+  const APPR_NOTE = '※評価は1～5の５段階で絶対評価で採点します。自分を客観的に見て「普通」と思う評価を３とします。';
   function reportOf(id, create) {
     const mo = month(true);
     if (!mo.reports) mo.reports = {};
@@ -844,15 +871,16 @@
   }
   function reportStats(id) {
     const r = reportOf(id); const nd = daysIn(cur.y, cur.m);
-    let filled = 0, work = 0, rated = 0, sumRate = 0; const rc = { 3: 0, 2: 0, 1: 0 };
+    let filled = 0, work = 0, rated = 0, sumRate = 0, tagged = 0; const rc = { 3: 0, 2: 0, 1: 0, '-1': 0 };
     for (let d = 1; d <= nd; d++) {
       const c = getCell(id, d); const isOff = c && typeOf(c.a) === 'off';
       if (!isOff) work++;
       const rd = r.days[d] || {};
       if (rd.note && rd.note.trim()) filled++;
-      if (rd.rate) { rated++; sumRate += rd.rate; rc[rd.rate]++; }
+      if (rd.rate) { rated++; sumRate += RATE_SCORE[rd.rate] ?? 0; rc[rd.rate] = (rc[rd.rate] || 0) + 1; }
+      if (rd.tags && rd.tags.length) tagged++;
     }
-    return { filled, work, rated, avg: rated ? sumRate / rated : null, rc, hasMgr: !!(r.mgrSummary && r.mgrSummary.trim()), rating: r.rating || '' };
+    return { filled, work, rated, tagged, avg: rated ? sumRate / rated : null, rc, hasMgr: !!(r.mgrSummary && r.mgrSummary.trim()), rating: r.rating || '' };
   }
   function renderReport() {
     const mo = month(true);
@@ -881,8 +909,9 @@
         <div class="report-kpis">
           <span>出勤 <b>${st.work}</b>日</span><span>休み <b>${cat.off}</b>日</span>
           <span>振り返り記入 <b>${st.filled}</b>/${st.work}日</span>
-          <span>日次評価 ◎${st.rc[3]} ○${st.rc[2]} △${st.rc[1]}</span>
+          <span>日次評価 ◎${st.rc[3]} ○${st.rc[2]} △${st.rc[1]} ×${st.rc[-1]}</span>
           ${st.avg != null ? `<span>平均 <b>${st.avg.toFixed(2)}</b></span>` : ''}
+          <span>考課タグ付き <b>${st.tagged}</b>日</span>
         </div>
         <div class="report-codes">${codesUsed.map(([k, n]) => `<span class="chip" style="background:${colorOf(k)}">${esc(k)} ${n}</span>`).join('')}</div>
       </div>
@@ -891,18 +920,20 @@
         <button class="btn" id="reportPrintBtn">印刷</button>
       </div>
     </div>`;
-    h += `<table class="report-table"><thead><tr><th class="c-d">日</th><th class="c-w">曜</th><th class="c-s">配置</th><th class="c-m">メモ</th><th class="c-n">活動の振り返り（本人）</th><th class="c-r">評価</th><th class="c-g">上長コメント</th></tr></thead><tbody>`;
+    h += `<table class="report-table"><thead><tr><th class="c-d">日</th><th class="c-w">曜</th><th class="c-s">配置</th><th class="c-m">メモ</th><th class="c-n">活動の振り返り（本人）</th><th class="c-r">評価</th><th class="c-g">上長コメント</th><th class="c-t">考課項目<span class="th-sub no-print">特筆すべき日だけ</span></th></tr></thead><tbody>`;
     for (let d = 1; d <= nd; d++) {
       const w = dow(cur.y, cur.m, d); const c = getCell(s.id, d) || {}; const rd = r.days[d] || {};
       const isOff = c.a && typeOf(c.a) === 'off';
       const col = c.a ? colorOf(c.a) : '';
+      const tags = (rd.tags || []).filter(t => APPR_ITEM[t]);
       h += `<tr class="${w === 0 ? 'sun' : w === 6 ? 'sat' : ''} ${isOff ? 'off' : ''}" data-day="${d}">
         <td class="c-d">${d}</td><td class="c-w">${DOW[w]}</td>
-        <td class="c-s"><span class="code" style="${col ? `background:${col}` : ''}">${esc(c.a || '')}</span></td>
+        <td class="c-s"><span class="code" style="${col ? `background:${col}` : ''}">${esc(shortOf(c.a || ''))}</span></td>
         <td class="c-m">${esc(c.n || '')}</td>
         <td class="c-n"><textarea data-f="note" rows="1" placeholder="${isOff ? '' : '今日やったこと・気づき・課題など'}">${esc(rd.note || '')}</textarea></td>
         <td class="c-r"><div class="rate-btns">${DAY_RATES.map(x => `<button data-rate="${x.v}" class="${rd.rate === x.v ? 'on' : ''}" title="${x.title}">${x.label}</button>`).join('')}</div></td>
         <td class="c-g"><textarea data-f="mgr" rows="1" placeholder="">${esc(rd.mgr || '')}</textarea></td>
+        <td class="c-t"><div class="tag-cell" data-day="${d}" title="クリックして考課項目を選択">${tags.map(t => `<span class="tag">${esc(APPR_ITEM[t].short)}</span>`).join('')}<button class="tag-add no-print" title="考課項目を付ける">${tags.length ? '…' : '＋'}</button></div></td>
       </tr>`;
     }
     h += '</tbody></table>';
@@ -922,6 +953,7 @@
       ta.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); const rows = $$('tr[data-day]', main); const i = rows.indexOf(ta.closest('tr')); const nxt = rows[i + 1] && $(`textarea[data-f=${ta.dataset.f}]`, rows[i + 1]); if (nxt) { nxt.focus(); } } });
     });
     $$('.rate-btns button', main).forEach(b => b.onclick = () => { const d = +b.closest('tr').dataset.day; const rd = reportDay(s.id, d, true); const v = +b.dataset.rate; rd.rate = rd.rate === v ? 0 : v; save(); renderReport(); });
+    $$('.tag-cell', main).forEach(cell => cell.onclick = e => { e.stopPropagation(); openTagPicker(s.id, +cell.dataset.day, cell); });
     $('#rSelf').addEventListener('change', e => { reportOf(s.id, true).self = e.target.value.trim(); save(); });
     $('#rMgr').addEventListener('change', e => { reportOf(s.id, true).mgrSummary = e.target.value.trim(); save(); refreshReportSide(); });
     $$('.rating-row button', main).forEach(b => b.onclick = () => { reportOf(s.id, true).rating = b.dataset.rating; save(); renderReport(); });
@@ -935,6 +967,31 @@
     };
   }
   function refreshReportSide() { const keep = reportStaffId; const mo = month(true); const li = $(`#reportStaffList li[data-id="${keep}"]`); if (!li) return; const st = reportStats(keep); const pct = st.work ? Math.round(st.filled / st.work * 100) : 0; $('.meta', li).innerHTML = `${st.filled}/${st.work}日${st.rating ? ` <b class="rt rt-${st.rating}">${st.rating}</b>` : ''}`; $('.bar i', li).style.width = pct + '%'; }
+  // 考課項目タグの選択ポップアップ
+  function openTagPicker(staffId, d, anchor) {
+    closeTagPicker();
+    const rd = reportDay(staffId, d, true); const cur0 = new Set(rd.tags || []);
+    const pop = document.createElement('div'); pop.id = 'tagPicker'; pop.className = 'tag-picker no-print';
+    const groups = []; APPR_ITEMS.forEach(it => { let g = groups.find(x => x.cat === it.cat); if (!g) { g = { cat: it.cat, group: it.group, items: [] }; groups.push(g); } g.items.push(it); });
+    pop.innerHTML = `<div class="tp-head"><b>${cur.m}/${d} の考課項目</b><span class="hint">該当する項目にチェック（複数可）</span><button class="btn icon tp-close">&#10005;</button></div>
+      <div class="tp-body">${groups.map(g => `<div class="tp-group"><div class="tp-cat">${esc(g.cat)}<small>${esc(g.group)}</small></div>${g.items.map(it => `<label class="tp-item" title="${esc(it.q)}"><input type="checkbox" value="${it.id}" ${cur0.has(it.id) ? 'checked' : ''}> ${esc(it.name)}</label>`).join('')}</div>`).join('')}</div>
+      <div class="tp-foot"><button class="btn tp-clear">すべて外す</button><span style="flex:1"></span><button class="btn primary tp-ok">決定</button></div>`;
+    document.body.appendChild(pop);
+    const r = anchor.getBoundingClientRect(); const W = Math.min(560, window.innerWidth - 16);
+    pop.style.width = W + 'px';
+    let left = Math.min(r.left, window.innerWidth - W - 8); if (left < 8) left = 8;
+    pop.style.left = left + 'px';
+    const H = pop.offsetHeight; let top = r.bottom + 4; if (top + H > window.innerHeight - 8) top = Math.max(8, r.top - H - 4);
+    pop.style.top = top + 'px';
+    const commit = () => { const tags = $$('input:checked', pop).map(i => i.value); if (tags.length) rd.tags = tags; else delete rd.tags; save(); closeTagPicker(); renderReport(); };
+    $('.tp-ok', pop).onclick = commit;
+    $('.tp-clear', pop).onclick = () => { $$('input', pop).forEach(i => i.checked = false); commit(); };
+    $('.tp-close', pop).onclick = closeTagPicker;
+    pop.addEventListener('click', e => e.stopPropagation());
+    setTimeout(() => { document.addEventListener('click', closeTagPicker, { once: true }); }, 0);
+    pop._esc = e => { if (e.key === 'Escape') closeTagPicker(); if (e.key === 'Enter' && e.target.tagName !== 'BUTTON') commit(); }; document.addEventListener('keydown', pop._esc);
+  }
+  function closeTagPicker() { const p = $('#tagPicker'); if (p) { document.removeEventListener('keydown', p._esc); p.remove(); } }
   function exportReportExcel(list) {
     if (typeof XLSX === 'undefined') return toast('Excelライブラリが読み込めていません', true);
     const nd = daysIn(cur.y, cur.m); const wb = XLSX.utils.book_new();
@@ -946,8 +1003,8 @@
       const ws = {}; const put = (rr, c, v, st2) => { ws[XLSX.utils.encode_cell({ r: rr, c })] = { v: v == null ? '' : v, t: typeof v === 'number' ? 'n' : 's', s: st2 || { font, border: B, alignment: { vertical: 'top', wrapText: true } } }; };
       const hdr = { font: { ...font, bold: true }, border: B, fill: fill('#D9D9D9'), alignment: { horizontal: 'center', vertical: 'center' } };
       put(0, 0, `${cur.y}年${cur.m}月 月報`, { font: { ...font, bold: true, sz: 14 } }); put(0, 2, '氏名'); put(0, 3, s.name, { font: { ...font, bold: true, sz: 12 } });
-      put(1, 0, `出勤 ${st.work}日 / 休み ${cat.off}日 / 振り返り記入 ${st.filled}日 / 日次評価 ◎${st.rc[3]} ○${st.rc[2]} △${st.rc[1]} / 月間評価 ${r.rating || '未評価'}`, { font });
-      const H = ['日', '曜', '配置', 'メモ', '活動の振り返り（本人）', '評価', '上長コメント']; H.forEach((x, i) => put(3, i, x, hdr));
+      put(1, 0, `出勤 ${st.work}日 / 休み ${cat.off}日 / 振り返り記入 ${st.filled}日 / 日次評価 ◎${st.rc[3]} ○${st.rc[2]} △${st.rc[1]} ×${st.rc[-1]} / 月間評価 ${r.rating || '未評価'}`, { font });
+      const H = ['日', '曜', '配置', 'メモ', '活動の振り返り（本人）', '評価', '上長コメント', '考課項目']; H.forEach((x, i) => put(3, i, x, hdr));
       let row = 4;
       for (let d = 1; d <= nd; d++) {
         const w = dow(cur.y, cur.m, d); const c = getCell(s.id, d) || {}; const rd = r.days[d] || {};
@@ -955,15 +1012,16 @@
         put(row, 0, d, { ...base, alignment: { horizontal: 'center', vertical: 'top' } }); put(row, 1, DOW[w], { ...base, alignment: { horizontal: 'center', vertical: 'top' } });
         put(row, 2, c.a || '', { ...base, fill: c.a ? fill(colorOf(c.a)) : base.fill, alignment: { horizontal: 'center', vertical: 'top' } });
         put(row, 3, c.n || '', base); put(row, 4, rd.note || '', base);
-        put(row, 5, rd.rate ? DAY_RATES.find(x => x.v === rd.rate).label : '', { ...base, alignment: { horizontal: 'center', vertical: 'top' } }); put(row, 6, rd.mgr || '', base);
+        put(row, 5, RATE_LABEL(rd.rate), { ...base, alignment: { horizontal: 'center', vertical: 'top' } }); put(row, 6, rd.mgr || '', base);
+        put(row, 7, (rd.tags || []).filter(t => APPR_ITEM[t]).map(t => APPR_ITEM[t].name).join('、'), base);
         row++;
       }
       row++;
-      put(row, 0, '今月の総括（本人）', hdr); put(row, 1, r.self || '', { font, border: B, alignment: { vertical: 'top', wrapText: true } }); ws['!merges'] = [{ s: { r: row, c: 1 }, e: { r: row, c: 6 } }]; row++;
-      put(row, 0, '上長総評', hdr); put(row, 1, r.mgrSummary || '', { font, border: B, alignment: { vertical: 'top', wrapText: true } }); ws['!merges'].push({ s: { r: row, c: 1 }, e: { r: row, c: 6 } }); row++;
+      put(row, 0, '今月の総括（本人）', hdr); put(row, 1, r.self || '', { font, border: B, alignment: { vertical: 'top', wrapText: true } }); ws['!merges'] = [{ s: { r: row, c: 1 }, e: { r: row, c: 7 } }]; row++;
+      put(row, 0, '上長総評', hdr); put(row, 1, r.mgrSummary || '', { font, border: B, alignment: { vertical: 'top', wrapText: true } }); ws['!merges'].push({ s: { r: row, c: 1 }, e: { r: row, c: 7 } }); row++;
       put(row, 0, '月間評価', hdr); put(row, 1, r.rating || '未評価', { font: { ...font, bold: true, sz: 12 }, border: B, alignment: { horizontal: 'center' } }); row++;
-      ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: row, c: 6 } });
-      ws['!cols'] = [{ wch: 4 }, { wch: 4 }, { wch: 13 }, { wch: 16 }, { wch: 48 }, { wch: 5 }, { wch: 36 }];
+      ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: row, c: 7 } });
+      ws['!cols'] = [{ wch: 4 }, { wch: 4 }, { wch: 13 }, { wch: 16 }, { wch: 44 }, { wch: 5 }, { wch: 34 }, { wch: 18 }];
       let name = s.name.replace(/[\\\/\?\*\[\]:]/g, '_').slice(0, 28); let k = 2; const b0 = name; while (used.has(name)) name = `${b0}_${k++}`; used.add(name);
       XLSX.utils.book_append_sheet(wb, ws, name);
     });
@@ -971,19 +1029,210 @@
     toast('月報を書き出しました');
   }
 
+  // ---------- 人事考課 ----------
+  // state.appraisals[periodKey][staffName] = { scores:{itemId:1-5}, reasons:{itemId:text}, overall, date, evaluator }
+  // 期間は月単位（from〜to）。スタッフは月ごとに id が変わり得るので氏名で突き合わせる。
+  let appr = { from: '', to: '', name: null };
+  const monthsBetween = (a, b) => { const out = []; if (!a || !b) return out; let [y, m] = a.split('-').map(Number); const [y2, m2] = b.split('-').map(Number); while (y < y2 || (y === y2 && m <= m2)) { out.push(ym(y, m)); m++; if (m > 12) { m = 1; y++; } } return out.slice(0, 36); };
+  const periodKey = () => `${appr.from}_${appr.to}`;
+  function apprOf(name, create) {
+    if (!state.appraisals) state.appraisals = {};
+    const k = periodKey(); if (!state.appraisals[k]) state.appraisals[k] = {};
+    if (!state.appraisals[k][name] && create) state.appraisals[k][name] = { scores: {}, reasons: {}, overall: '', date: '', evaluator: '' };
+    return state.appraisals[k][name] || { scores: {}, reasons: {}, overall: '', date: '', evaluator: '' };
+  }
+  function apprStaffNames() {
+    const seen = new Set(), out = [];
+    monthsBetween(appr.from, appr.to).forEach(k => { const mo = state.months[k]; if (!mo) return; mo.staff.forEach(s => { if (!seen.has(s.name)) { seen.add(s.name); out.push(s.name); } }); });
+    return out;
+  }
+  // 期間内の日次記録をすべて集める（タグ有無を問わず）
+  function apprCollect(name) {
+    const days = []; let work = 0;
+    monthsBetween(appr.from, appr.to).forEach(k => {
+      const mo = state.months[k]; if (!mo) return; const s = mo.staff.find(x => x.name === name); if (!s) return;
+      const [y, m] = k.split('-').map(Number); const nd = daysIn(y, m); const r = (mo.reports && mo.reports[s.id]) || { days: {} };
+      for (let d = 1; d <= nd; d++) {
+        const c = (mo.shifts[s.id] && mo.shifts[s.id][d]) || {}; const isOff = c.a && typeOf(c.a) === 'off'; if (!isOff) work++;
+        const rd = r.days[d]; if (!rd) continue;
+        const tags = (rd.tags || []).filter(t => APPR_ITEM[t]);
+        if (!tags.length && !rd.rate && !(rd.mgr && rd.mgr.trim())) continue;
+        days.push({ k, y, m, d, w: dow(y, m, d), a: c.a || '', n: c.n || '', note: rd.note || '', mgr: rd.mgr || '', rate: rd.rate || 0, tags });
+      }
+    });
+    return { days, work };
+  }
+  function apprStats(name) {
+    const a = apprOf(name); const vals = Object.values(a.scores).filter(v => v >= 1 && v <= 5);
+    const g = grp => APPR_ITEMS.filter(i => i.group === grp).map(i => a.scores[i.id]).filter(v => v >= 1);
+    const avg = arr => arr.length ? arr.reduce((x, y) => x + y, 0) / arr.length : null;
+    return { scored: vals.length, total: vals.reduce((x, y) => x + y, 0), avg: avg(vals), basic: avg(g('基礎項目')), guide: avg(g('行動指針項目')) };
+  }
+  function initAppraisal() {
+    const saved = JSON.parse(localStorage.getItem('shiftapp.appr') || '{}');
+    appr.from = saved.from || ''; appr.to = saved.to || '';
+    $('#apprFrom').onchange = e => { appr.from = e.target.value; if (appr.to && appr.to < appr.from) appr.to = appr.from; persistAppr(); renderAppraisal(); };
+    $('#apprTo').onchange = e => { appr.to = e.target.value; if (appr.from && appr.from > appr.to) appr.from = appr.to; persistAppr(); renderAppraisal(); };
+    $('#apprExportAllBtn').onclick = () => exportAppraisalExcel(apprStaffNames());
+  }
+  function persistAppr() { localStorage.setItem('shiftapp.appr', JSON.stringify({ from: appr.from, to: appr.to })); }
+  function renderAppraisal() {
+    if (!appr.from || !appr.to) { const keys = Object.keys(state.months).sort(); appr.from = appr.from || keys[0] || monthKey(); appr.to = appr.to || keys[keys.length - 1] || monthKey(); if (appr.from > appr.to) appr.to = appr.from; persistAppr(); }
+    $('#apprFrom').value = appr.from; $('#apprTo').value = appr.to;
+    const names = apprStaffNames();
+    if (!names.length) { $('#apprMain').innerHTML = '<div class="card" style="margin:14px">この期間にスタッフのデータがありません。評価期間を変えてください。</div>'; $('#apprStaffList').innerHTML = ''; return; }
+    if (!appr.name || !names.includes(appr.name)) appr.name = names[0];
+    $('#apprStaffList').innerHTML = names.map(n => {
+      const st = apprStats(n); const pct = Math.round(st.scored / APPR_ITEMS.length * 100);
+      return `<li class="${n === appr.name ? 'active' : ''}" data-name="${esc(n)}"><span class="nm">${esc(n)}</span><span class="meta">${st.scored}/${APPR_ITEMS.length}${st.avg != null ? ` <b>${st.avg.toFixed(1)}</b>` : ''}</span><span class="bar"><i style="width:${pct}%"></i></span></li>`;
+    }).join('');
+    $$('#apprStaffList li').forEach(li => li.onclick = () => { appr.name = li.dataset.name; renderAppraisal(); });
+    renderAppraisalMain();
+  }
+  const fmtMd = x => `${x.m}/${x.d}(${DOW[x.w]})`;
+  const periodLabel = () => { const [y1, m1] = appr.from.split('-').map(Number), [y2, m2] = appr.to.split('-').map(Number); return appr.from === appr.to ? `${y1}年${m1}月` : `${y1}年${m1}月〜${y2}年${m2}月`; };
+  function renderAppraisalMain() {
+    const name = appr.name; const a = apprOf(name); const col = apprCollect(name); const st = apprStats(name);
+    const byTag = {}; APPR_ITEMS.forEach(i => byTag[i.id] = []);
+    col.days.forEach(x => x.tags.forEach(t => byTag[t].push(x)));
+    const untagged = col.days.filter(x => !x.tags.length && (x.rate === 3 || x.rate === -1 || x.mgr.trim()));
+    const taggedDays = col.days.filter(x => x.tags.length).length;
+    const rateCount = { 3: 0, 2: 0, 1: 0, '-1': 0 }; col.days.forEach(x => { if (x.rate) rateCount[x.rate]++; });
+    let h = `<div class="report-head">
+      <div><h2>${esc(name)} <small>人事考課 ${periodLabel()}</small></h2>
+        <div class="report-kpis">
+          <span>出勤 <b>${col.work}</b>日</span><span>日次評価 ◎${rateCount[3]} ○${rateCount[2]} △${rateCount[1]} ×${rateCount[-1]}</span>
+          <span>考課タグ付き <b>${taggedDays}</b>日</span>
+          <span>採点 <b>${st.scored}</b>/${APPR_ITEMS.length}項目</span>
+          ${st.avg != null ? `<span>平均 <b>${st.avg.toFixed(2)}</b></span><span>合計 <b>${st.total}</b></span>` : ''}
+          ${st.basic != null ? `<span>基礎 <b>${st.basic.toFixed(2)}</b></span>` : ''}${st.guide != null ? `<span>行動指針 <b>${st.guide.toFixed(2)}</b></span>` : ''}
+        </div>
+        <div class="appr-meta">
+          <label>評価年月日 <input type="date" id="apprDate" value="${esc(a.date || '')}"></label>
+          <label>評価者 <input id="apprEvaluator" value="${esc(a.evaluator || '')}" placeholder="氏名"></label>
+          <span class="hint">${APPR_NOTE}</span>
+        </div>
+      </div>
+      <div class="report-actions no-print">
+        <button class="btn" id="apprExportBtn">この人をExcel書出</button>
+        <button class="btn" id="apprPrintBtn">印刷</button>
+      </div>
+    </div>`;
+    if (untagged.length) {
+      h += `<div class="appr-untagged no-print"><b>考課項目が付いていない特筆日が ${untagged.length} 日あります</b>（◎・×・上長コメントあり）。根拠に使うには月報でタグを付けてください：
+        ${untagged.slice(0, 40).map(x => `<a href="#" class="ut" data-k="${x.k}" data-d="${x.d}" title="${esc((x.mgr || x.note).slice(0, 80))}">${fmtMd(x)}${x.rate ? RATE_LABEL(x.rate) : ''}</a>`).join(' ')}${untagged.length > 40 ? ' …' : ''}</div>`;
+    }
+    h += `<table class="appr-table"><thead><tr><th colspan="2">評価項目</th><th class="c-i">項目</th><th class="c-q">具体的評価内容</th><th class="c-e">根拠（月報の日次記録）</th><th class="c-sc">考課<br>1〜5</th><th class="c-rs">評価理由</th></tr></thead><tbody>`;
+    let lastGroup = '', lastCat = '';
+    APPR_ITEMS.forEach((it, idx) => {
+      const ev = byTag[it.id]; const sc = a.scores[it.id] || 0;
+      const cnt = { 3: 0, 2: 0, 1: 0, '-1': 0 }; ev.forEach(x => { if (x.rate) cnt[x.rate]++; });
+      const grpCell = it.group !== lastGroup ? `<td class="c-g" rowspan="${APPR_ITEMS.filter(x => x.group === it.group).length}"><span class="vt">${esc(it.group)}</span></td>` : '';
+      const catCell = it.cat !== lastCat ? `<td class="c-c" rowspan="${APPR_ITEMS.filter(x => x.cat === it.cat).length}">${esc(it.cat)}</td>` : '';
+      lastGroup = it.group; lastCat = it.cat;
+      h += `<tr data-item="${it.id}">${grpCell}${catCell}<td class="c-i"><b>${esc(it.name)}</b></td>
+        <td class="c-q">${esc(it.q)}<button class="desc-btn no-print" title="評価内容解説を表示">解説</button><div class="desc hidden">${esc(it.desc)}</div></td>
+        <td class="c-e">${ev.length ? `<div class="ev-sum">${ev.length}日 ${cnt[3] ? `<span class="ev-r r3">◎${cnt[3]}</span>` : ''}${cnt[2] ? `<span class="ev-r r2">○${cnt[2]}</span>` : ''}${cnt[1] ? `<span class="ev-r r1">△${cnt[1]}</span>` : ''}${cnt[-1] ? `<span class="ev-r rx">×${cnt[-1]}</span>` : ''}</div>
+          <ul class="ev-list">${ev.map(x => `<li class="rate-${x.rate}"><a href="#" class="ev-d" data-k="${x.k}" data-d="${x.d}">${fmtMd(x)}</a><span class="ev-rate">${RATE_LABEL(x.rate)}</span>${x.a ? `<span class="ev-a" style="background:${colorOf(x.a)}">${esc(shortOf(x.a))}</span>` : ''}<span class="ev-t">${x.mgr ? `<span class="ev-mgr">${esc(x.mgr)}</span>` : ''}${x.note ? `<span class="ev-note">${esc(x.note)}</span>` : ''}</span></li>`).join('')}</ul>` : '<span class="ev-none">根拠となる記録なし</span>'}</td>
+        <td class="c-sc"><div class="score-btns">${[1, 2, 3, 4, 5].map(v => `<button data-score="${v}" class="${sc === v ? 'on s' + v : ''}">${v}</button>`).join('')}</div></td>
+        <td class="c-rs"><textarea data-item="${it.id}" rows="2" placeholder="どういう判断でこの点数にしたか">${esc(a.reasons[it.id] || '')}</textarea></td>
+      </tr>`;
+    });
+    h += `</tbody><tfoot><tr><td colspan="5" class="tf-l">合計（採点済 ${st.scored}/${APPR_ITEMS.length} 項目）　基礎項目 平均 ${st.basic != null ? st.basic.toFixed(2) : '-'}　行動指針項目 平均 ${st.guide != null ? st.guide.toFixed(2) : '-'}</td><td class="c-sc"><b>${st.total || ''}</b></td><td></td></tr></tfoot></table>`;
+    h += `<div class="report-summary"><div class="card" style="grid-column:1/-1"><h3>総評・フィードバック用メモ</h3><textarea id="apprOverall" rows="4" placeholder="面談で伝えること、期待すること、次期の課題など">${esc(a.overall || '')}</textarea></div></div>`;
+    const main = $('#apprMain'); main.innerHTML = h;
+    // handlers
+    const autoGrow = ta => { ta.style.height = 'auto'; ta.style.height = (ta.scrollHeight + 2) + 'px'; };
+    $$('textarea', main).forEach(ta => { autoGrow(ta); ta.addEventListener('input', () => autoGrow(ta)); });
+    $$('.appr-table textarea', main).forEach(ta => ta.addEventListener('change', () => { const o = apprOf(name, true); const v = ta.value.trim(); if (v) o.reasons[ta.dataset.item] = v; else delete o.reasons[ta.dataset.item]; save(); }));
+    $$('.score-btns button', main).forEach(b => b.onclick = () => { const id = b.closest('tr').dataset.item; const o = apprOf(name, true); const v = +b.dataset.score; if (o.scores[id] === v) delete o.scores[id]; else o.scores[id] = v; save(); renderAppraisal(); });
+    $$('.desc-btn', main).forEach(b => b.onclick = () => { const d = b.nextElementSibling; d.classList.toggle('hidden'); b.textContent = d.classList.contains('hidden') ? '解説' : '閉じる'; });
+    $$('a.ev-d, a.ut', main).forEach(x => x.onclick = e => { e.preventDefault(); jumpToReport(x.dataset.k, name, +x.dataset.d); });
+    $('#apprDate').onchange = e => { apprOf(name, true).date = e.target.value; save(); };
+    $('#apprEvaluator').addEventListener('change', e => { apprOf(name, true).evaluator = e.target.value.trim(); save(); });
+    $('#apprOverall').addEventListener('change', e => { apprOf(name, true).overall = e.target.value.trim(); save(); });
+    $('#apprExportBtn').onclick = () => exportAppraisalExcel([name]);
+    $('#apprPrintBtn').onclick = () => printPortrait();
+  }
+  function printPortrait() {
+    let st = $('#printPageStyle'); if (!st) { st = document.createElement('style'); st.id = 'printPageStyle'; document.head.appendChild(st); }
+    st.textContent = '@page { size: A4 portrait; margin: 10mm; }';
+    const cleanup = () => { st.textContent = ''; window.removeEventListener('afterprint', cleanup); };
+    window.addEventListener('afterprint', cleanup); window.print();
+  }
+  function jumpToReport(k, name, d) {
+    const [y, m] = k.split('-').map(Number); const mo = state.months[k]; if (!mo) return;
+    const s = mo.staff.find(x => x.name === name); if (!s) return;
+    cur = { y, m }; reportStaffId = s.id; renderHeader(); switchView('report');
+    const tr = $(`#reportMain tr[data-day="${d}"]`); if (tr) { tr.scrollIntoView({ block: 'center' }); tr.classList.add('flash'); setTimeout(() => tr.classList.remove('flash'), 1600); }
+  }
+  function exportAppraisalExcel(names) {
+    if (typeof XLSX === 'undefined') return toast('Excelライブラリが読み込めていません', true);
+    if (!names.length) return toast('対象のスタッフがいません', true);
+    const wb = XLSX.utils.book_new();
+    const border = { style: 'thin', color: { rgb: '808080' } }; const B = { top: border, bottom: border, left: border, right: border };
+    const font = { name: 'Noto Sans JP', sz: 10 }; const fill = hex => ({ patternType: 'solid', fgColor: { rgb: hex.replace('#', '').toUpperCase() } });
+    const wrap = { font, border: B, alignment: { vertical: 'top', wrapText: true } };
+    const ctr = { font, border: B, alignment: { horizontal: 'center', vertical: 'center', wrapText: true } };
+    const hdr = { font: { ...font, bold: true }, border: B, fill: fill('#D9E1F2'), alignment: { horizontal: 'center', vertical: 'center', wrapText: true } };
+    const used = new Set();
+    names.forEach(name => {
+      const a = apprOf(name); const col = apprCollect(name); const st = apprStats(name);
+      const byTag = {}; APPR_ITEMS.forEach(i => byTag[i.id] = []); col.days.forEach(x => x.tags.forEach(t => byTag[t].push(x)));
+      const ws = {}; const put = (r, c, v, s) => { ws[XLSX.utils.encode_cell({ r, c })] = { v: v == null ? '' : v, t: typeof v === 'number' ? 'n' : 's', s: s || wrap }; };
+      const lbl = { font: { ...font, bold: true }, border: B, fill: fill('#F2F2F2'), alignment: { vertical: 'center' } };
+      // A=0 空, B=1 評価項目, C=2 項目１, D=3 項目２, E=4 具体的評価内容, F=5 課長考課, G=6 評価内容解説, H=7 評価理由, I=8 根拠
+      put(0, 1, '評価年月日', lbl); put(0, 2, a.date || '', { font, border: B });
+      put(1, 1, '被評価者', lbl); put(1, 2, name, { font: { ...font, bold: true, sz: 12 }, border: B });
+      put(2, 1, '評価者', lbl); put(2, 2, a.evaluator || '', { font, border: B });
+      put(3, 1, '評価期間', lbl); put(3, 2, periodLabel(), { font, border: B });
+      put(4, 5, APPR_NOTE, { font: { ...font, sz: 9, color: { rgb: 'C00000' } } });
+      ['評価項目', '項目１', '項目２', '具体的評価内容', '課長考課', '評価内容解説', '評価理由', '根拠（月報の日次記録）'].forEach((x, i) => put(5, 1 + i, x, hdr));
+      let row = 6; const merges = []; let gStart = row, cStart = row, lastG = '', lastC = '';
+      APPR_ITEMS.forEach((it, idx) => {
+        if (it.group !== lastG) { if (lastG) merges.push({ s: { r: gStart, c: 1 }, e: { r: row - 1, c: 1 } }); gStart = row; lastG = it.group; put(row, 1, it.group, { ...ctr, font: { ...font, bold: true }, fill: fill(it.group === '基礎項目' ? '#FFF2CC' : '#E2EFDA'), alignment: { horizontal: 'center', vertical: 'center', textRotation: 255 } }); }
+        if (it.cat !== lastC) { if (lastC) merges.push({ s: { r: cStart, c: 2 }, e: { r: row - 1, c: 2 } }); cStart = row; lastC = it.cat; put(row, 2, it.cat, { ...ctr, font: { ...font, bold: true } }); }
+        put(row, 3, it.name, { ...wrap, font: { ...font, bold: true } });
+        put(row, 4, it.q, wrap);
+        const sc = a.scores[it.id]; put(row, 5, sc || '', { ...ctr, font: { ...font, bold: true, sz: 12 }, fill: sc ? fill(sc >= 4 ? '#DDEBF7' : sc <= 2 ? '#FCE4D6' : '#FFFFFF') : undefined });
+        put(row, 6, it.desc, { ...wrap, font: { ...font, sz: 9 } });
+        put(row, 7, a.reasons[it.id] || '', wrap);
+        const ev = byTag[it.id];
+        put(row, 8, ev.map(x => `${x.y}/${x.m}/${x.d}${RATE_LABEL(x.rate)}${x.a ? `[${x.a}]` : ''} ${x.mgr || x.note}`.trim()).join('\n'), { ...wrap, font: { ...font, sz: 9 } });
+        row++;
+      });
+      merges.push({ s: { r: gStart, c: 1 }, e: { r: row - 1, c: 1 } }); merges.push({ s: { r: cStart, c: 2 }, e: { r: row - 1, c: 2 } });
+      put(row, 4, '合計', { ...lbl, alignment: { horizontal: 'right' } });
+      ws[XLSX.utils.encode_cell({ r: row, c: 5 })] = { t: 'n', f: `SUM(F7:F${row})`, s: { ...ctr, font: { ...font, bold: true, sz: 12 } } };
+      put(row, 6, `採点 ${st.scored}/${APPR_ITEMS.length} 項目　基礎項目 平均 ${st.basic != null ? st.basic.toFixed(2) : '-'}　行動指針項目 平均 ${st.guide != null ? st.guide.toFixed(2) : '-'}`, { font });
+      row += 2;
+      put(row, 1, '総評', lbl); put(row, 2, a.overall || '', wrap); merges.push({ s: { r: row, c: 2 }, e: { r: row, c: 8 } }); row++;
+      ws['!merges'] = merges;
+      ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: row, c: 8 } });
+      ws['!cols'] = [{ wch: 2 }, { wch: 7 }, { wch: 12 }, { wch: 14 }, { wch: 40 }, { wch: 7 }, { wch: 50 }, { wch: 40 }, { wch: 50 }];
+      ws['!rows'] = []; for (let r = 6; r < 6 + APPR_ITEMS.length; r++) ws['!rows'][r] = { hpt: Math.max(60, Math.min(220, 15 * (1 + (byTag[APPR_ITEMS[r - 6].id].length || 0)))) };
+      let sn = name.replace(/[\\\/\?\*\[\]:]/g, '_').slice(0, 28); let k = 2; const b0 = sn; while (used.has(sn)) sn = `${b0}_${k++}`; used.add(sn);
+      XLSX.utils.book_append_sheet(wb, ws, sn);
+    });
+    XLSX.writeFile(wb, `人事考課表_${appr.from.replace('-', '')}-${appr.to.replace('-', '')}${names.length === 1 ? '_' + names[0] : ''}.xlsx`);
+    toast('考課表を書き出しました');
+  }
+
   // ---------- views ----------
   function switchView(v) {
     view = v;
     $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === v));
-    ['grid', 'day', 'report', 'summary', 'settings'].forEach(k => $('#view-' + k).classList.toggle('hidden', k !== v));
-    ed.close();
-    document.body.classList.toggle('print-report', v === 'report');
+    ['grid', 'day', 'report', 'appraisal', 'summary', 'settings'].forEach(k => $('#view-' + k).classList.toggle('hidden', k !== v));
+    ed.close(); closeTagPicker();
+    document.body.classList.toggle('print-report', v === 'report' || v === 'appraisal');
+    document.body.classList.toggle('print-appr', v === 'appraisal');
     renderView();
   }
   function renderView() {
     if (view === 'grid') { renderLegend(); renderGrid(); }
     else if (view === 'day') renderDay();
     else if (view === 'report') renderReport();
+    else if (view === 'appraisal') renderAppraisal();
     else if (view === 'summary') renderSummary();
     else renderSettings();
   }
@@ -1012,7 +1261,7 @@
     $('#undoBtn').onclick = undo; $('#redoBtn').onclick = redo;
     $('#exportBtn').onclick = exportExcel;
     $('#importFile').onchange = e => { if (e.target.files[0]) importExcel(e.target.files[0]); e.target.value = ''; };
-    $('#printBtn').onclick = () => { if (view === 'report') { $('#reportPrintBtn') && $('#reportPrintBtn').click(); return; } if (view !== 'grid') switchView('grid'); setTimeout(() => window.print(), 100); };
+    $('#printBtn').onclick = () => { if (view === 'report') { $('#reportPrintBtn') && $('#reportPrintBtn').click(); return; } if (view === 'appraisal') { printPortrait(); return; } if (view !== 'grid') switchView('grid'); setTimeout(() => window.print(), 100); };
     $('#showNotes').onchange = renderGrid; $('#showCounts').onchange = renderGrid;
     $('#compactMode').onchange = e => { document.body.classList.toggle('compact', e.target.checked); localStorage.setItem('shiftapp.compact', e.target.checked ? '1' : ''); };
     if (localStorage.getItem('shiftapp.compact')) { $('#compactMode').checked = true; document.body.classList.add('compact'); }
@@ -1028,10 +1277,10 @@
     // day view
     $('#prevDay').onclick = () => shiftDay(-1); $('#nextDay').onclick = () => shiftDay(1);
     $('#dayPicker').onchange = e => { const [y, m, d] = e.target.value.split('-').map(Number); if (!y) return; if (y !== cur.y || m !== cur.m) { cur = { y, m }; ensureStaffForMonth(); } dayViewDate = { y, m, d }; renderAll(); };
-    initEditor(); initKeys(); initSettings(); initSync();
+    initEditor(); initKeys(); initSettings(); initSync(); initAppraisal();
     $('#reportExportAllBtn').onclick = () => exportReportExcel(month(true).staff);
     init2();
-    const hv = (location.hash.match(/view=(grid|day|report|summary|settings)/) || [])[1];
+    const hv = (location.hash.match(/view=(grid|day|report|appraisal|summary|settings)/) || [])[1];
     if (hv) switchView(hv);
     // クラウド同期: 起動時に読み込み、タブ復帰時にも確認、閉じる前に未送信があれば送信
     if (sync.on()) sync.pull(true);
@@ -1071,5 +1320,5 @@
 
   document.addEventListener('DOMContentLoaded', init);
   // テスト・デバッグ用フック
-  window.__shift = { parseSheet, importExcel, exportExcel, getState: () => state, getCur: () => cur, gotoMonth };
+  window.__shift = { parseSheet, importExcel, exportExcel, getState: () => state, getCur: () => cur, gotoMonth, switchView, setAppr: (from, to, name) => { appr.from = from; appr.to = to; if (name) appr.name = name; persistAppr(); }, apprCollect, exportAppraisalExcel, save, renderAll, APPR_ITEMS };
 })();

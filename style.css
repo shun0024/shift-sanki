@@ -218,7 +218,77 @@ table.report-table { width: 100%; border-collapse: collapse; background: var(--p
 .rate-btns button.on { color: #fff; background: var(--accent); border-color: var(--accent); }
 .rate-btns button[data-rate="3"].on { background: #16a34a; border-color: #16a34a; }
 .rate-btns button[data-rate="1"].on { background: #dc2626; border-color: #dc2626; }
+.rate-btns button[data-rate="-1"].on { background: #111827; border-color: #111827; }
+.report-table th .th-sub { display: block; font-weight: normal; font-size: 10px; color: var(--muted); }
+.report-table .c-t { width: 118px; }
+.tag-cell { display: flex; flex-wrap: wrap; gap: 2px; align-items: center; cursor: pointer; min-height: 24px; border-radius: 4px; padding: 1px 2px; }
+.tag-cell:hover { background: #f1f5f9; }
+.tag-cell .tag { font-size: 10px; background: #e0e7ff; color: #3730a3; border-radius: 3px; padding: 0 5px; line-height: 17px; white-space: nowrap; }
+.tag-cell .tag-add { border: 1px dashed var(--line); background: #fff; color: #9ca3af; border-radius: 4px; width: 22px; height: 20px; font-size: 12px; line-height: 1; cursor: pointer; padding: 0; }
+.tag-cell:hover .tag-add { color: var(--accent); border-color: var(--accent); }
+.report-table tr.flash td { animation: flash 1.6s ease-out; }
+@keyframes flash { 0% { background: #fef08a; } 100% { background: transparent; } }
+.tag-picker { position: fixed; z-index: 90; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.18); font-size: 12px; }
+.tag-picker .tp-head { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.tag-picker .tp-head .hint { color: var(--muted); font-size: 11px; flex: 1; }
+.tag-picker .tp-body { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px 10px; padding: 10px; max-height: 60vh; overflow: auto; }
+.tag-picker .tp-group { break-inside: avoid; }
+.tag-picker .tp-cat { font-weight: 700; font-size: 11px; color: #374151; border-bottom: 1px solid var(--line); margin-bottom: 3px; padding-bottom: 2px; }
+.tag-picker .tp-cat small { font-weight: normal; color: var(--muted); margin-left: 4px; font-size: 10px; }
+.tag-picker .tp-item { display: flex; align-items: center; gap: 4px; padding: 2px 3px; border-radius: 4px; cursor: pointer; white-space: nowrap; }
+.tag-picker .tp-item:hover { background: #f1f5f9; }
+.tag-picker .tp-item input { margin: 0; }
+.tag-picker .tp-foot { display: flex; gap: 8px; padding: 8px 10px; border-top: 1px solid var(--line); }
 .report-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px; }
+
+/* ---------- appraisal (人事考課) ---------- */
+.appr-period { display: flex; align-items: center; gap: 4px; padding: 8px; border-bottom: 1px solid var(--line); font-size: 12px; }
+.appr-period input { width: 100%; min-width: 0; font-size: 12px; padding: 3px 4px; border: 1px solid var(--line); border-radius: 4px; }
+.appr-meta { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 4px; }
+.appr-meta input { border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; font-size: 12px; margin-left: 4px; }
+.appr-meta .hint { color: #b91c1c; font-size: 11px; }
+.appr-untagged { background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px; padding: 8px 12px; font-size: 12px; margin-bottom: 10px; line-height: 1.9; }
+.appr-untagged .ut { display: inline-block; background: #fff; border: 1px solid #fcd34d; border-radius: 4px; padding: 0 6px; margin-right: 2px; text-decoration: none; color: #92400e; font-size: 11px; line-height: 18px; }
+.appr-untagged .ut:hover { background: #fef3c7; }
+table.appr-table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); }
+.appr-table th, .appr-table td { border: 1px solid var(--line); padding: 5px 6px; font-size: 12px; vertical-align: top; }
+.appr-table th { background: #f8fafc; font-weight: 600; text-align: center; position: sticky; top: 48px; z-index: 2; }
+.appr-table td.c-g { width: 26px; background: #fff7e6; text-align: center; vertical-align: middle; padding: 0; }
+.appr-table td.c-g .vt { writing-mode: vertical-rl; letter-spacing: .3em; font-weight: 700; font-size: 12px; display: inline-block; padding: 8px 0; }
+.appr-table td.c-c { width: 78px; background: #f8fafc; font-weight: 600; vertical-align: middle; text-align: center; }
+.appr-table .c-i { width: 90px; }
+.appr-table .c-q { width: 22%; color: #374151; }
+.appr-table .c-q .desc-btn { display: block; margin-top: 4px; border: 1px solid var(--line); background: #fff; color: var(--muted); border-radius: 4px; font-size: 10px; padding: 1px 6px; cursor: pointer; }
+.appr-table .c-q .desc { margin-top: 5px; font-size: 11px; color: #4b5563; background: #f9fafb; border-left: 3px solid #cbd5e1; padding: 5px 7px; line-height: 1.55; }
+.appr-table .c-e { min-width: 240px; }
+.appr-table .ev-sum { font-size: 11px; color: var(--muted); margin-bottom: 3px; display: flex; gap: 5px; align-items: center; }
+.appr-table .ev-r { border-radius: 3px; padding: 0 5px; font-size: 11px; color: #fff; }
+.appr-table .ev-r.r3 { background: #16a34a; } .appr-table .ev-r.r2 { background: #2563eb; } .appr-table .ev-r.r1 { background: #dc2626; } .appr-table .ev-r.rx { background: #111827; }
+.appr-table .ev-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; max-height: 260px; overflow: auto; }
+.appr-table .ev-list li { display: flex; gap: 5px; align-items: baseline; font-size: 11px; line-height: 1.45; padding: 2px 4px; border-radius: 4px; background: #f8fafc; }
+.appr-table .ev-list li.rate-3 { background: #f0fdf4; } .appr-table .ev-list li.rate-1 { background: #fef2f2; } .appr-table .ev-list li.rate--1 { background: #f3f4f6; }
+.appr-table .ev-d { white-space: nowrap; color: var(--accent); text-decoration: none; font-weight: 600; }
+.appr-table .ev-d:hover { text-decoration: underline; }
+.appr-table .ev-rate { width: 14px; text-align: center; font-weight: 700; }
+.appr-table .ev-a { font-size: 10px; padding: 0 5px; border-radius: 3px; white-space: nowrap; }
+.appr-table .ev-t { flex: 1; min-width: 0; }
+.appr-table .ev-mgr { display: block; }
+.appr-table .ev-note { display: block; color: #6b7280; }
+.appr-table .ev-note::before { content: '本人: '; color: #9ca3af; }
+.appr-table .ev-none { color: #cbd5e1; font-size: 11px; }
+.appr-table .c-sc { width: 150px; text-align: center; }
+.score-btns { display: inline-flex; gap: 2px; }
+.score-btns button { width: 26px; height: 26px; border: 1px solid var(--line); background: #fff; border-radius: 4px; cursor: pointer; font-size: 12px; color: #9ca3af; padding: 0; font-weight: 600; }
+.score-btns button:hover { background: #f1f5f9; }
+.score-btns button.on { color: #fff; border-color: transparent; background: #6b7280; }
+.score-btns button.on.s5 { background: #7c3aed; } .score-btns button.on.s4 { background: #2563eb; } .score-btns button.on.s3 { background: #16a34a; } .score-btns button.on.s2 { background: #d97706; } .score-btns button.on.s1 { background: #dc2626; }
+.appr-table .c-rs { width: 22%; }
+.appr-table textarea { width: 100%; border: 1px solid transparent; border-radius: 4px; padding: 3px 5px; font: inherit; font-size: 12px; line-height: 1.4; resize: none; overflow: hidden; background: #fff; min-height: 40px; display: block; }
+.appr-table textarea:hover { border-color: var(--line); }
+.appr-table textarea:focus { border-color: var(--accent); outline: none; }
+.appr-table tfoot td { background: #f8fafc; font-size: 12px; }
+.appr-table tfoot .tf-l { text-align: right; color: #374151; }
+.appr-table tfoot .c-sc b { font-size: 15px; }
 .report-summary textarea { width: 100%; border: 1px solid var(--line); border-radius: 6px; padding: 8px; font: inherit; font-size: 13px; line-height: 1.5; resize: vertical; }
 .rating-row { display: flex; align-items: center; gap: 5px; margin-bottom: 8px; font-size: 12px; color: var(--muted); }
 .rt-btn { min-width: 32px; height: 28px; border: 1px solid var(--line); background: #fff; border-radius: 6px; cursor: pointer; font-weight: 700; color: #9ca3af; }
@@ -322,4 +392,19 @@ code { background: #f1f5f9; padding: 1px 5px; border-radius: 4px; font-size: 12p
   body.print-report .report-summary .card { break-inside: avoid; margin-bottom: 8px; }
   body.print-report .report-summary textarea { border: 1px solid #999; }
   body.print-report .report-table tr { break-inside: avoid; }
+  body.print-report .tag-cell .tag { border: 1px solid #999; background: none; color: #000; }
+  body.print-report .tag-cell .tag-add { display: none; }
+  /* 考課の印刷 */
+  body.print-appr .appr-table th { position: static; }
+  body.print-appr .appr-table th, body.print-appr .appr-table td { font-size: 9px; padding: 3px 4px; }
+  body.print-appr .appr-table tr { break-inside: avoid; }
+  body.print-appr .appr-table .desc-btn { display: none; }
+  body.print-appr .appr-table .ev-list { max-height: none; overflow: visible; }
+  body.print-appr .appr-table .ev-list li { font-size: 8.5px; background: none; padding: 0; }
+  body.print-appr .appr-table .ev-d { color: #000; }
+  body.print-appr .appr-table .ev-r { color: #000; background: none !important; border: 1px solid #000; }
+  body.print-appr .score-btns button { display: none; }
+  body.print-appr .score-btns button.on { display: inline-block; color: #000; background: none !important; border: 2px solid #000; font-size: 12px; }
+  body.print-appr .appr-table textarea { border: none; padding: 0 2px; min-height: 0; font-size: 9px; }
+  body.print-appr .appr-meta input { border: none; border-bottom: 1px solid #999; }
 }
