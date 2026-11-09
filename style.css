@@ -108,6 +108,38 @@ table.grid { border-collapse: separate; border-spacing: 0; table-layout: fixed; 
 .grid th .dow { display: block; color: var(--muted); font-weight: normal; }
 .grid th.sun .dow { color: #dc2626; }
 .grid th.sat .dow { color: #2563eb; }
+/* 市場カレンダー・定休日 */
+.grid thead th.day { cursor: pointer; position: relative; }
+.grid thead th.day:hover { outline: 2px solid var(--accent); outline-offset: -2px; }
+.grid th .mk { position: absolute; top: 1px; right: 1px; font-style: normal; font-size: 8px; line-height: 10px; padding: 0 2px; border-radius: 2px; color: #fff; background: #6b7280; }
+.grid th.mclosed .mk { background: #6b7280; }
+.grid th.mtemp .mk { background: #b45309; }
+.grid th.mopen .mk { background: #15803d; }
+.grid th.cooff .mk { background: #dc2626; }
+.grid th.day.mclosed, .grid th.calcell.mclosed { background-color: #e5e7eb; }
+.grid th.day.mclosed .dow { color: #6b7280; }
+.grid th.day.mopen, .grid th.calcell.mopen { background-color: #dcfce7; }
+.grid th.day.mtemp, .grid th.calcell.mtemp { background-color: #fde68a; }
+.grid th.day.cooff, .grid th.calcell.cooff { background-color: #fecaca; }
+.grid th.day.cooff .dow { color: #991b1b; }
+.grid td.col-closed { background-image: repeating-linear-gradient(135deg, rgba(0,0,0,.035) 0 3px, transparent 3px 7px); }
+.grid td.col-cooff { background-image: repeating-linear-gradient(135deg, rgba(220,38,38,.09) 0 3px, transparent 3px 7px); }
+.grid thead tr.calrow th { top: 30px; height: 14px; font-size: 8px; font-weight: normal; color: #374151; background: #f8fafc; padding: 0; cursor: pointer; }
+.grid thead tr.calrow th.name { font-size: 8px; color: var(--muted); }
+.grid thead tr.calrow th span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 1px; }
+.grid thead tr.calrow th.hasnote { color: #1d4ed8; font-weight: 600; }
+.day-popup { position: fixed; z-index: 90; width: 340px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.18); font-size: 12px; }
+.day-popup .dp-head { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.day-popup .dp-head .hint { color: var(--muted); font-size: 11px; flex: 1; }
+.day-popup .dp-body { padding: 8px 12px; display: flex; flex-direction: column; gap: 8px; }
+.day-popup .dp-sec label { display: flex; align-items: center; gap: 6px; padding: 2px 0; cursor: pointer; }
+.day-popup .dp-sec input[type=text], .day-popup .dp-sec input:not([type]) { width: 100%; border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; font-size: 12px; }
+.dp-title { font-weight: 600; font-size: 11px; color: #374151; margin-bottom: 3px; }
+.day-popup .dp-foot { display: flex; gap: 8px; padding: 8px 10px; border-top: 1px solid var(--line); }
+.weekly-off { display: flex; gap: 10px; flex-wrap: wrap; }
+.weekly-off .chk.sun { color: #dc2626; } .weekly-off .chk.sat { color: #2563eb; }
+.dbadge { display: inline-block; font-size: 11px; font-weight: 500; padding: 1px 8px; border-radius: 999px; margin-left: 4px; vertical-align: middle; }
+.dbadge.closed { background: #e5e7eb; color: #374151; } .dbadge.open { background: #dcfce7; color: #166534; } .dbadge.cooff { background: #fecaca; color: #991b1b; } .dbadge.note { background: #dbeafe; color: #1e40af; }
 .grid td.cell { cursor: pointer; font-weight: 400; }
 .grid td.cell:hover { outline: 2px solid var(--accent); outline-offset: -2px; }
 .grid td.cell.sel { outline: 2px solid var(--accent); outline-offset: -2px; box-shadow: inset 0 0 0 100px rgba(37,99,235,.12); }
@@ -377,6 +409,9 @@ code { background: #f1f5f9; padding: 1px 5px; border-radius: 4px; font-size: 12p
   .grid-wrap { max-height: none; overflow: visible; margin: 0; border: none; }
   .grid th, .grid td { width: auto; min-width: 0; height: 18px; font-size: 8px; padding: 0 1px; }
   .grid thead th, .grid td.name, .grid th.name { position: static; }
+  .grid thead tr.calrow th { height: 12px; font-size: 7px; }
+  .grid th .mk { font-size: 6px; line-height: 8px; }
+  .grid th.day.mclosed, .grid th.calcell.mclosed, .grid th.day.cooff, .grid th.calcell.cooff, .grid th.day.mopen, .grid th.calcell.mopen, .grid th.day.mtemp, .grid th.calcell.mtemp, .grid td.col-closed, .grid td.col-cooff { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .grid td.cell:hover { outline: none; }
   @page { size: A3 landscape; margin: 8mm; }
   /* 月報の印刷: A4縦 */

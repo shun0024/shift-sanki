@@ -39,6 +39,13 @@
   ];
   const SEP_DEFAULT = new Set(['嶋根', '田邊(恭)']);
 
+  // ---------- 東京都中央卸売市場 水産物部 休市日（都の公開CSVより。MM-DD） ----------
+  const MARKET_CLOSED_BUILTIN = {
+    2026: ["01-01","01-02","01-03","01-04","01-07","01-11","01-12","01-14","01-18","01-21","01-25","01-28","02-01","02-04","02-08","02-11","02-15","02-18","02-22","02-23","02-25","03-01","03-04","03-08","03-11","03-15","03-18","03-20","03-22","03-25","03-29","04-01","04-05","04-08","04-12","04-15","04-19","04-22","04-26","04-29","05-03","05-04","05-05","05-10","05-13","05-17","05-20","05-24","05-27","05-31","06-03","06-07","06-10","06-14","06-17","06-21","06-24","06-28","07-01","07-05","07-08","07-12","07-15","07-19","07-20","07-22","07-26","07-29","08-02","08-05","08-09","08-11","08-14","08-15","08-16","08-19","08-23","08-26","08-30","09-02","09-06","09-09","09-13","09-16","09-20","09-21","09-22","09-27","09-30","10-04","10-07","10-11","10-12","10-18","10-21","10-25","10-28","11-01","11-03","11-08","11-11","11-15","11-18","11-22","11-23","11-29","12-02","12-06","12-09","12-13","12-16","12-20","12-23","12-31"],
+    2027: ["01-01","01-02","01-03","01-04","01-10","01-11","01-13","01-17","01-20","01-24","01-27","01-31","02-03","02-07","02-10","02-11","02-14","02-17","02-21","02-23","02-24","02-28","03-03","03-07","03-10","03-14","03-17","03-21","03-22","03-24","03-28","04-04","04-07","04-11","04-14","04-18","04-21","04-25","04-28","04-29","05-02","05-03","05-04","05-09","05-12","05-16","05-19","05-23","05-26","05-30","06-02","06-06","06-09","06-13","06-16","06-20","06-23","06-27","06-30","07-04","07-07","07-11","07-14","07-18","07-19","07-21","07-25","07-28","08-01","08-04","08-08","08-11","08-14","08-15","08-16","08-18","08-22","08-25","08-29","09-01","09-05","09-08","09-12","09-15","09-19","09-20","09-23","09-26","09-29","10-03","10-06","10-10","10-11","10-13","10-17","10-20","10-24","10-27","10-31","11-03","11-07","11-10","11-14","11-17","11-21","11-23","11-28","12-01","12-05","12-08","12-12","12-15","12-19","12-22","12-31"],
+  };
+  const MARKET_CSV_URL = 'https://www.shijou.metro.tokyo.lg.jp/calendar';
+
   // ---------- state ----------
   let state = null;          // { version, codes, targets, months: { 'YYYY-MM': { staff:[{id,name,sep}], shifts:{id:{day:{a,n}}} } } }
   let cur = { y: 0, m: 0 };  // 表示中の月
@@ -280,6 +287,53 @@
     }
     return res;
   }
+  // ---------- カレンダー（休市日・定休日・注釈） ----------
+  // state.calendar = { closed:{ 'YYYY-MM-DD': true|false }   // true=休市に設定, false=開市に設定（臨時開市）。未設定なら内蔵カレンダー
+  //                    , company:{ 'YYYY-MM-DD': true }       // 当社定休日（個別）
+  //                    , weeklyOff:[0..6]                     // 当社定休の曜日
+  //                    , notes:{ 'YYYY-MM-DD': '文字列' } }    // 注釈
+  function cal() { if (!state.calendar) state.calendar = { closed: {}, company: {}, weeklyOff: [], notes: {} }; const c = state.calendar; c.closed = c.closed || {}; c.company = c.company || {}; c.weeklyOff = c.weeklyOff || []; c.notes = c.notes || {}; return c; }
+  const dkey = (y, m, d) => `${y}-${pad(m)}-${pad(d)}`;
+  function yearClosedList(y) { const c = cal(); return (c.imported && c.imported[y]) || MARKET_CLOSED_BUILTIN[y] || null; }
+  function builtinClosed(y, m, d) { const a = yearClosedList(y); return !!(a && a.includes(`${pad(m)}-${pad(d)}`)); }
+  function hasBuiltinYear(y) { return !!yearClosedList(y); }
+  function calYearsLabel() { const c = cal(); const ys = new Set(Object.keys(MARKET_CLOSED_BUILTIN)); Object.keys(c.imported || {}).forEach(y => ys.add(y)); return Array.from(ys).sort().map(y => `${y}年${c.imported && c.imported[y] ? '(取込)' : ''}`).join('・'); }
+  function importCalendarCsv(file) {
+    const rd = new FileReader();
+    rd.onload = () => {
+      let text; const buf = rd.result;
+      try { text = new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch (e) { text = new TextDecoder('shift_jis').decode(buf); }
+      const byYear = {}; let n = 0;
+      text.split(/\r?\n/).forEach(line => {
+        const cols = line.split(','); if (cols.length < 2) return;
+        const mm = cols[1].trim().match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/); if (!mm) return;
+        if (cols[0] && !/休/.test(cols[0])) return;  // 「休市日」以外の行は無視
+        const y = +mm[1]; (byYear[y] = byYear[y] || []).push(`${pad(+mm[2])}-${pad(+mm[3])}`); n++;
+      });
+      const years = Object.keys(byYear); if (!years.length) return toast('休市日の行が見つかりませんでした（Subject,Start Date,End Date 形式のCSVを指定してください）', true);
+      const c = cal(); c.imported = c.imported || {};
+      years.forEach(y => { c.imported[y] = Array.from(new Set(byYear[y])).sort(); });
+      save(); renderSettings(); if (view === 'grid') renderGrid();
+      toast(`${years.join('・')}年の休市日 ${n}日を取り込みました`);
+    };
+    rd.readAsArrayBuffer(file);
+  }
+  // その日の情報 { closed, special('臨時休市'|'臨時開市'|''), company, note, label }
+  function dayInfo(y, m, d) {
+    const c = cal(); const k = dkey(y, m, d); const w = dow(y, m, d);
+    const base = builtinClosed(y, m, d); const ov = c.closed[k];
+    const closed = ov == null ? base : !!ov;
+    let special = '';
+    if (ov != null && ov !== base) special = ov ? '臨時休市' : '臨時開市';
+    else if (ov == null && !hasBuiltinYear(y)) special = '';
+    const company = !!c.company[k] || c.weeklyOff.includes(w);
+    const note = c.notes[k] || '';
+    const parts = []; if (closed) parts.push(special === '臨時休市' ? '臨時休市' : '休市'); else if (special === '臨時開市') parts.push('臨時開市'); if (company) parts.push('定休'); if (note) parts.push(note);
+    return { closed, special, company, note, label: parts.join(' / '), hasData: hasBuiltinYear(y) };
+  }
+  function dayHeadClass(y, m, d) { const i = dayInfo(y, m, d); const cls = []; if (i.closed) cls.push('mclosed'); if (i.special === '臨時開市') cls.push('mopen'); if (i.special === '臨時休市') cls.push('mtemp'); if (i.company) cls.push('cooff'); if (i.note) cls.push('hasnote'); return cls.join(' '); }
+  function dayMark(y, m, d) { const i = dayInfo(y, m, d); if (i.company) return '休'; if (i.closed) return i.special === '臨時休市' ? '臨' : '市'; if (i.special === '臨時開市') return '開'; return ''; }
+
   function targetFor(t, d) { return dow(cur.y, cur.m, d) === 0 ? t.sun : t.num; }
   function targetClass(t, d) {
     const need = targetFor(t, d), n = countCodeOnDay(t.code, d);
@@ -308,12 +362,23 @@
     const nd = daysIn(cur.y, cur.m);
     const showNotes = $('#showNotes').checked, showCounts = $('#showCounts').checked;
     const today = new Date(); const isThisMonth = today.getFullYear() === cur.y && today.getMonth() + 1 === cur.m;
-    const dcls = d => { const w = dow(cur.y, cur.m, d); return w === 0 ? 'sun' : w === 6 ? 'sat' : w === 3 ? 'wed' : ''; };
+    const showCal = $('#showCalendar').checked;
+    const dcls = d => { const w = dow(cur.y, cur.m, d); let c = w === 0 ? 'sun' : w === 6 ? 'sat' : w === 3 ? 'wed' : ''; if (showCal) { const i = dayInfo(cur.y, cur.m, d); if (i.company) c += ' col-cooff'; else if (i.closed) c += ' col-closed'; } return c; };
 
     let h = '<table class="grid"><thead><tr>';
     h += `<th class="name">${wareki(cur.y)}.${cur.m}<span class="dow">${cur.y}年${cur.m}月</span></th>`;
-    for (let d = 1; d <= nd; d++) h += `<th class="day ${dcls(d)} ${isThisMonth && today.getDate() === d ? 'today' : ''}">${d}<span class="dow">${DOW[dow(cur.y, cur.m, d)]}</span></th>`;
-    h += '<th class="total">休み</th><th class="total">出勤</th></tr></thead><tbody>';
+    for (let d = 1; d <= nd; d++) {
+      const di = dayInfo(cur.y, cur.m, d); const mk = showCal ? dayMark(cur.y, cur.m, d) : '';
+      h += `<th class="day ${dcls(d)} ${showCal ? dayHeadClass(cur.y, cur.m, d) : ''} ${isThisMonth && today.getDate() === d ? 'today' : ''}" data-day="${d}" title="${esc(di.label || '開市')}（クリックで休市・定休・注釈を設定）">${d}${mk ? `<i class="mk">${mk}</i>` : ''}<span class="dow">${DOW[dow(cur.y, cur.m, d)]}</span></th>`;
+    }
+    h += '<th class="total">休み</th><th class="total">出勤</th></tr>';
+    if (showCal) {
+      // 注釈行（休市・定休・注釈）
+      h += `<tr class="calrow"><th class="name">市場/注釈</th>`;
+      for (let d = 1; d <= nd; d++) { const di = dayInfo(cur.y, cur.m, d); const txt = di.note || (di.company ? '定休' : di.closed ? (di.special === '臨時休市' ? '臨時休市' : '休市') : di.special === '臨時開市' ? '臨時開市' : ''); h += `<th class="calcell ${dcls(d)} ${dayHeadClass(cur.y, cur.m, d)}" data-day="${d}" title="${esc(di.label)}"><span>${esc(txt)}</span></th>`; }
+      h += '<th class="total" colspan="2"></th></tr>';
+    }
+    h += '</thead><tbody>';
 
     if (!mo.staff.length) {
       h += `<tr><td colspan="${nd + 3}" style="padding:20px;color:#6b7280">スタッフが登録されていません。「設定」タブから追加するか、Excelを取り込んでください。</td></tr>`;
@@ -359,8 +424,51 @@
     $$('td.cell', wrap).forEach(td => {
       td.addEventListener('click', e => { openEditor(td.dataset.id, +td.dataset.day, td.dataset.kind === 'n'); });
     });
+    $$('thead th[data-day]', wrap).forEach(th => th.addEventListener('click', e => { e.stopPropagation(); ed.close(); openDayPopup(+th.dataset.day, th); }));
     fitCellText(wrap);
   }
+  // 日付ヘッダーのポップアップ: 休市/開市の切替・定休日・注釈
+  function openDayPopup(d, anchor) {
+    closeDayPopup();
+    const y = cur.y, m = cur.m; const k = dkey(y, m, d); const c = cal(); const di = dayInfo(y, m, d);
+    const base = builtinClosed(y, m, d); const ov = c.closed[k];
+    const pop = document.createElement('div'); pop.id = 'dayPopup'; pop.className = 'day-popup no-print';
+    const w = dow(y, m, d);
+    pop.innerHTML = `<div class="dp-head"><b>${m}/${d}(${DOW[w]})</b><span class="hint">${di.hasData ? `市場カレンダー: ${base ? '休市' : '開市'}` : `${y}年の市場カレンダー未登録`}</span><button class="btn icon dp-close">&#10005;</button></div>
+      <div class="dp-body">
+        <div class="dp-sec"><div class="dp-title">市場（豊洲 水産物部）</div>
+          <label><input type="radio" name="dpMarket" value="auto" ${ov == null ? 'checked' : ''}> カレンダー通り（${base ? '休市' : '開市'}）</label>
+          <label><input type="radio" name="dpMarket" value="open" ${ov === false ? 'checked' : ''}> 臨時開市</label>
+          <label><input type="radio" name="dpMarket" value="closed" ${ov === true ? 'checked' : ''}> 臨時休市</label>
+        </div>
+        <div class="dp-sec"><div class="dp-title">当社</div>
+          <label><input type="checkbox" id="dpCompany" ${c.company[k] ? 'checked' : ''}> この日を定休日にする</label>
+          ${c.weeklyOff.includes(w) ? `<div class="hint">※毎週${DOW[w]}曜は定休に設定されています（設定タブで変更）</div>` : ''}
+        </div>
+        <div class="dp-sec"><div class="dp-title">注釈（ヘッダー下に表示）</div><input id="dpNote" value="${esc(c.notes[k] || '')}" placeholder="例: 棚卸、全体会議、年末特別体制" autocomplete="off"></div>
+      </div>
+      <div class="dp-foot"><button class="btn dp-clear">この日の設定を消去</button><span style="flex:1"></span><button class="btn primary dp-ok">決定</button></div>`;
+    document.body.appendChild(pop);
+    const r = anchor.getBoundingClientRect(); const W = pop.offsetWidth;
+    let left = Math.min(r.left, window.innerWidth - W - 8); if (left < 8) left = 8;
+    pop.style.left = left + 'px'; pop.style.top = (r.bottom + 4) + 'px';
+    const commit = () => {
+      const mv = $('input[name=dpMarket]:checked', pop).value;
+      if (mv === 'auto') delete c.closed[k]; else c.closed[k] = mv === 'closed';
+      if ($('#dpCompany', pop).checked) c.company[k] = true; else delete c.company[k];
+      const n = $('#dpNote', pop).value.trim(); if (n) c.notes[k] = n; else delete c.notes[k];
+      save(); closeDayPopup(); renderGrid();
+    };
+    $('.dp-ok', pop).onclick = commit;
+    $('.dp-clear', pop).onclick = () => { delete c.closed[k]; delete c.company[k]; delete c.notes[k]; save(); closeDayPopup(); renderGrid(); };
+    $('.dp-close', pop).onclick = closeDayPopup;
+    pop.addEventListener('mousedown', e => e.stopPropagation());
+    pop.addEventListener('click', e => e.stopPropagation());
+    $('#dpNote', pop).addEventListener('keydown', e => { if (e.isComposing || e.keyCode === 229) return; if (e.key === 'Enter') { e.preventDefault(); commit(); } if (e.key === 'Escape') closeDayPopup(); });
+    setTimeout(() => document.addEventListener('mousedown', closeDayPopup, { once: true }), 0);
+    $('#dpNote', pop).focus();
+  }
+  function closeDayPopup() { const p = $('#dayPopup'); if (p) p.remove(); }
   // セル幅に収まらない文字は縮小して全体を表示する（セル幅は広げない）
   function fitCellText(wrap) {
     const spans = $$('td.cell > span', wrap).filter(sp => sp.textContent);
@@ -506,7 +614,9 @@
       const ia = state.codes.findIndex(c => c.name === a), ib = state.codes.findIndex(c => c.name === b);
       return (ia < 0 ? 999 : ia) - (ib < 0 ? 999 : ib) || a.localeCompare(b, 'ja');
     });
-    let h = `<div class="day-wrap"><div class="card"><h3>${cur.m}月${d}日 (${DOW[dow(cur.y, cur.m, d)]}) 配置別<small>${mo.staff.length}名</small></h3><div class="group-by-code">`;
+    const di = dayInfo(cur.y, cur.m, d);
+    const badges = [di.company ? '<span class="dbadge cooff">当社定休</span>' : '', di.closed ? `<span class="dbadge closed">${di.special === '臨時休市' ? '臨時休市' : '休市'}</span>` : di.special === '臨時開市' ? '<span class="dbadge open">臨時開市</span>' : (di.hasData ? '<span class="dbadge open">開市</span>' : ''), di.note ? `<span class="dbadge note">${esc(di.note)}</span>` : ''].join('');
+    let h = `<div class="day-wrap"><div class="card"><h3>${cur.m}月${d}日 (${DOW[dow(cur.y, cur.m, d)]}) ${badges} 配置別<small>${mo.staff.length}名</small></h3><div class="group-by-code">`;
     order.forEach(k => {
       const t = state.targets.find(x => x.code === k); const need = t ? targetFor(t, d) : null;
       const list = byCode[k]; const under = need != null && need !== '' && list.length < need;
@@ -627,6 +737,13 @@
     });
     makeSortable(tl, order => { state.targets = order.map(i => state.targets[+i]); save(); renderSettings(); renderGrid(); });
     $('#newTargetCode').innerHTML = state.codes.filter(c => !state.targets.some(t => t.code === c.name)).map(c => `<option>${esc(c.name)}</option>`).join('');
+    // calendar
+    const c = cal();
+    $('#calYears').textContent = calYearsLabel();
+    $('#weeklyOff').innerHTML = DOW.map((n, i) => `<label class="chk ${i === 0 ? 'sun' : i === 6 ? 'sat' : ''}"><input type="checkbox" value="${i}" ${c.weeklyOff.includes(i) ? 'checked' : ''}> ${n}</label>`).join('');
+    $$('#weeklyOff input').forEach(i => i.onchange = () => { c.weeklyOff = $$('#weeklyOff input:checked').map(x => +x.value); save(); });
+    const ov = Object.keys(c.closed).length, co = Object.keys(c.company).length, nt = Object.keys(c.notes).length;
+    $('#calCsvInfo').textContent = `個別設定: 臨時開市/休市 ${ov}日・定休日 ${co}日・注釈 ${nt}件`;
     updateStorageInfo(); renderSyncBadge();
   }
   function makeSortable(ul, onDone) {
@@ -645,6 +762,7 @@
     $('#addCodeBtn').onclick = () => { const v = $('#newCodeName').value.trim(); if (!v) return; if (state.codes.some(c => c.name === v)) return toast('同名の配置があります', true); state.codes.push({ name: v, color: $('#newCodeColor').value, type: $('#newCodeType').value }); $('#newCodeName').value = ''; save(); renderAll(); };
     $('#newCodeName').addEventListener('keydown', e => { if (e.key === 'Enter') $('#addCodeBtn').click(); });
     $('#addTargetBtn').onclick = () => { const code = $('#newTargetCode').value; if (!code) return; state.targets.push({ code, num: +$('#newTargetNum').value, sun: 0 }); save(); renderSettings(); renderGrid(); };
+    $('#calCsvFile').onchange = e => { if (e.target.files[0]) importCalendarCsv(e.target.files[0]); e.target.value = ''; };
   }
 
   // ---------- Excel export ----------
@@ -659,9 +777,11 @@
     const center = { horizontal: 'center', vertical: 'center' };
     const font = { name: 'Noto Sans JP', sz: 10 };
     const colL = XLSX.utils.encode_col;
-    const dayFill = d => { const w = dow(cur.y, cur.m, d); return w === 0 ? 'FDE8E8' : w === 6 ? 'E8F0FE' : w === 3 ? 'FFF7E6' : null; };
+    const dayFill = d => { const di = dayInfo(cur.y, cur.m, d); if (di.company) return 'F8CBAD'; if (di.closed) return 'D9D9D9'; const w = dow(cur.y, cur.m, d); return w === 0 ? 'FDE8E8' : w === 6 ? 'E8F0FE' : w === 3 ? 'FFF7E6' : null; };
 
-    // 行1: 空き / 行2: タイトル+日付 / 行3: 曜日
+    // 行1: 市場/注釈 / 行2: タイトル+日付 / 行3: 曜日
+    put(0, 1, '市場/注釈', { font: { ...font, sz: 8 }, alignment: center });
+    for (let d = 1; d <= nd; d++) { const di = dayInfo(cur.y, cur.m, d); const txt = di.note || (di.company ? '定休' : di.closed ? (di.special === '臨時休市' ? '臨時休市' : '休市') : di.special === '臨時開市' ? '臨時開市' : ''); if (txt) put(0, d + 1, txt, { font: { ...font, sz: 7, color: { rgb: di.company ? 'C00000' : '595959' } }, alignment: { ...center, wrapText: true } }); }
     put(1, 1, `${wareki(cur.y)}.${cur.m}`, { font: { ...font, bold: true, sz: 12 }, alignment: center, border: B, fill: fill('#D9D9D9') });
     put(2, 1, `${cur.y}年${cur.m}月`, { font, alignment: center, border: B, fill: fill('#D9D9D9') });
     for (let d = 1; d <= nd; d++) {
@@ -1264,6 +1384,8 @@
     $('#importFile').onchange = e => { if (e.target.files[0]) importExcel(e.target.files[0]); e.target.value = ''; };
     $('#printBtn').onclick = () => { if (view === 'report') { $('#reportPrintBtn') && $('#reportPrintBtn').click(); return; } if (view === 'appraisal') { printPortrait(); return; } if (view !== 'grid') switchView('grid'); setTimeout(() => window.print(), 100); };
     $('#showNotes').onchange = renderGrid; $('#showCounts').onchange = renderGrid;
+    $('#showCalendar').onchange = e => { localStorage.setItem('shiftapp.showcal', e.target.checked ? '1' : '0'); renderGrid(); };
+    if (localStorage.getItem('shiftapp.showcal') === '0') $('#showCalendar').checked = false;
     $('#compactMode').onchange = e => { document.body.classList.toggle('compact', e.target.checked); localStorage.setItem('shiftapp.compact', e.target.checked ? '1' : ''); };
     if (localStorage.getItem('shiftapp.compact')) { $('#compactMode').checked = true; document.body.classList.add('compact'); }
     // menu

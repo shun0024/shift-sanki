@@ -61,6 +61,7 @@
       <div class="toolbar-right">
         <label class="chk"><input type="checkbox" id="showNotes" checked> メモ行を表示</label>
         <label class="chk"><input type="checkbox" id="showCounts" checked> 配置人数を表示</label>
+        <label class="chk"><input type="checkbox" id="showCalendar" checked> 休市・定休を表示</label>
         <label class="chk"><input type="checkbox" id="compactMode"> コンパクト</label>
       </div>
     </div>
@@ -149,6 +150,17 @@
           <select id="newTargetCode"></select>
           <input type="number" id="newTargetNum" min="0" value="1" style="width:60px">
           <button id="addTargetBtn" class="btn">追加</button>
+        </div>
+      </div>
+      <div class="card">
+        <h3>カレンダー（休市日・当社定休日）</h3>
+        <p class="hint">東京都中央卸売市場（水産物部）の休市日は内蔵しています（<span id="calYears"></span>）。月間表の日付をクリックすると、その日だけ「臨時開市」「臨時休市」「定休日」「注釈」を設定できます。</p>
+        <div class="form">
+          <div class="dp-title">当社の定休曜日</div>
+          <div id="weeklyOff" class="weekly-off"></div>
+          <div class="dp-title" style="margin-top:8px">休市日カレンダーの取り込み</div>
+          <p class="hint">翌年分が公開されたら、<a href="https://www.shijou.metro.tokyo.lg.jp/calendar" target="_blank" rel="noopener">東京都中央卸売市場の年間カレンダー</a>から「水産物 Googleカレンダー取り込み用（csv）」をダウンロードして、ここに取り込んでください。</p>
+          <div class="row"><label class="btn file-btn">休市日CSVを取り込む<input type="file" id="calCsvFile" accept=".csv,text/csv" hidden></label><span id="calCsvInfo" class="hint"></span></div>
         </div>
       </div>
       <div class="card">
