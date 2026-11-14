@@ -100,6 +100,7 @@
           }
           // 既存データへの一度きりの移行: 豊洲・KFT の土曜/休市日の代替配置
           if (!state.targetsV2) { (state.targets || []).forEach(t => { if (t.code === '豊洲・KFT' && t.satCode == null && t.closedCode == null) { t.satCode = '豊洲応援'; t.closedCode = 'キッコーマン'; } }); state.targetsV2 = 1; }
+          if (!Array.isArray(state.tasks)) state.tasks = [];
           return;
         }
       }
@@ -107,7 +108,7 @@
     state = freshState();
   }
   function freshState() {
-    const s = { version: 1, palette: PALETTE_VERSION, codes: clone(DEFAULT_CODES), targets: clone(DEFAULT_TARGETS), months: {} };
+    const s = { version: 1, palette: PALETTE_VERSION, codes: clone(DEFAULT_CODES), targets: clone(DEFAULT_TARGETS), months: {}, tasks: [] };
     if (window.SEED) {
       const key = ym(SEED.year, SEED.month);
       const month = { staff: [], shifts: {} };
@@ -203,6 +204,7 @@
   function applyRemote(data) {
     if (!data || !data.months || !data.codes) throw new Error('クラウドのデータ形式が不正です');
     state = data;
+    if (!Array.isArray(state.tasks)) state.tasks = [];
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { }
     undoStack.length = 0; redoStack.length = 0; updateUndoButtons();
     if (!state.months[monthKey()]) ensureStaffForMonth();
@@ -640,9 +642,54 @@
       const c = getCell(s.id, d) || {}; const col = c.a ? colorOf(c.a) : '#f1f5f9';
       h += `<li data-id="${s.id}"><span class="nm">${esc(s.name)}</span><span class="code" style="background:${col};color:${textColor(col)}">${esc(c.a || '―')}</span><span class="note">${esc(c.n || '')}</span><button class="btn" style="margin-left:auto;padding:2px 8px" data-edit="${s.id}">編集</button></li>`;
     });
-    h += '</ul></div></div>';
+    h += '</ul></div>';
+    // ---- 活動フィードバック（出勤メンバー） : 月報の日次記録と同じデータ ----
+    const dateKey = `${cur.y}-${pad(cur.m)}-${pad(d)}`;
+    const working = mo.staff.filter(s => { const c = getCell(s.id, d); return !(c && c.a && typeOf(c.a) === 'off'); });
+    const offStaff = mo.staff.filter(s => !working.includes(s));
+    const fbFilled = working.filter(s => { const rd = reportDay(s.id, d); return (rd.note && rd.note.trim()) || (rd.mgr && rd.mgr.trim()) || rd.rate || (rd.tags && rd.tags.length); }).length;
+    h += `<div class="card fb-card"><h3>活動フィードバック<small>出勤 ${working.length}名 / 記入 ${fbFilled}名 ・ 月報の「活動の振り返り」「評価」「上長コメント」「考課項目」と同じ記録です</small></h3>`;
+    if (!working.length) h += '<p class="hint">この日に出勤しているメンバーはいません。</p>';
+    else {
+      h += `<table class="report-table fb-table"><thead><tr><th class="c-nm">氏名</th><th class="c-s">配置</th><th class="c-n">今日の活動・取り組み（本人）</th><th class="c-r">評価</th><th class="c-g">上長フィードバック</th><th class="c-t">考課項目<span class="th-sub no-print">特筆すべき日だけ</span></th></tr></thead><tbody>`;
+      working.forEach(s => {
+        const c = getCell(s.id, d) || {}; const rd = reportDay(s.id, d); const col = c.a ? colorOf(c.a) : '';
+        const tags = (rd.tags || []).filter(t => APPR_ITEM[t]);
+        h += `<tr data-id="${s.id}">
+          <td class="c-nm"><b>${esc(s.name)}</b><a href="#" class="fb-jump no-print" data-id="${s.id}" title="この人の月報を開く">月報</a></td>
+          <td class="c-s"><span class="code" style="${col ? `background:${col}` : ''}">${esc(shortOf(c.a || ''))}</span>${c.n ? `<div class="fb-memo">${esc(c.n)}</div>` : ''}</td>
+          <td class="c-n"><textarea data-f="note" rows="1" placeholder="今日やったこと・気づき・課題など">${esc(rd.note || '')}</textarea></td>
+          <td class="c-r"><div class="rate-btns">${DAY_RATES.map(x => `<button data-rate="${x.v}" class="${rd.rate === x.v ? 'on' : ''}" title="${x.title}">${x.label}</button>`).join('')}</div></td>
+          <td class="c-g"><textarea data-f="mgr" rows="1" placeholder="良かった点・改善点・伝えたいこと">${esc(rd.mgr || '')}</textarea></td>
+          <td class="c-t"><div class="tag-cell" data-id="${s.id}" title="クリックして考課項目を選択">${tags.map(t => `<span class="tag">${esc(APPR_ITEM[t].short)}</span>`).join('')}<button class="tag-add no-print" title="考課項目を付ける">${tags.length ? '…' : '＋'}</button></div></td>
+        </tr>`;
+      });
+      h += '</tbody></table>';
+      if (offStaff.length) h += `<p class="hint" style="margin:6px 0 0">休み: ${offStaff.map(s => esc(s.name)).join('、')}</p>`;
+    }
+    h += '</div>';
+    // ---- タスク（この日が期間に含まれるもの・この日に振ったもの） ----
+    const dayTasks = state.tasks.filter(t => taskTouchesDay(t, dateKey)).sort(taskSort);
+    h += `<div class="card task-card"><h3>タスク<small>この日が期間に含まれる・この日に振った・この日に完了したもの</small><button class="btn no-print" id="dayTaskAdd" style="margin-left:auto;padding:3px 10px">＋ タスクを振る</button></h3>`;
+    h += renderTaskList(dayTasks, { showAssignee: true, empty: 'この日のタスクはありません。「＋ タスクを振る」から各人にタスクを割り当てられます。' });
+    h += '</div></div>';
     $('#dayContent').innerHTML = h;
     $$('#dayContent [data-edit]').forEach(b => b.onclick = () => { switchView('grid'); setTimeout(() => { openEditor(b.dataset.edit, d, false); const td = $(`td.cell[data-id="${b.dataset.edit}"][data-day="${d}"][data-kind="a"]`); if (td) td.scrollIntoView({ block: 'center', inline: 'center' }); }, 30); });
+    // feedback handlers
+    const fb = $('#dayContent .fb-table');
+    if (fb) {
+      const autoGrow = ta => { ta.style.height = 'auto'; ta.style.height = (ta.scrollHeight + 2) + 'px'; };
+      $$('textarea', fb).forEach(ta => { autoGrow(ta); ta.addEventListener('input', () => autoGrow(ta)); });
+      $$('tr[data-id] textarea', fb).forEach(ta => {
+        ta.addEventListener('change', () => { const id = ta.closest('tr').dataset.id; const rd = reportDay(id, d, true); const v = ta.value.trim(); if (v) rd[ta.dataset.f] = v; else delete rd[ta.dataset.f]; save(); });
+        ta.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); const rows = $$('tr[data-id]', fb); const i = rows.indexOf(ta.closest('tr')); const nxt = rows[i + 1] && $(`textarea[data-f=${ta.dataset.f}]`, rows[i + 1]); if (nxt) nxt.focus(); else ta.blur(); } });
+      });
+      $$('.rate-btns button', fb).forEach(b => b.onclick = () => { const id = b.closest('tr').dataset.id; const rd = reportDay(id, d, true); const v = +b.dataset.rate; rd.rate = rd.rate === v ? 0 : v; save(); renderDay(); });
+      $$('.tag-cell', fb).forEach(cell => cell.onclick = e => { e.stopPropagation(); openTagPicker(cell.dataset.id, d, cell, renderDay); });
+      $$('.fb-jump', fb).forEach(a => a.onclick = e => { e.preventDefault(); reportStaffId = a.dataset.id; switchView('report'); const tr = $(`#reportMain tr[data-day="${d}"]`); if (tr) { tr.scrollIntoView({ block: 'center' }); tr.classList.add('flash'); setTimeout(() => tr.classList.remove('flash'), 1600); } });
+    }
+    $('#dayTaskAdd').onclick = () => openTaskModal(null, { start: dateKey, due: dateKey, onSave: renderDay });
+    bindTaskList($('#dayContent .task-card'), renderDay);
   }
 
   // ---------- summary ----------
@@ -1038,6 +1085,9 @@
     const nd = daysIn(cur.y, cur.m); const r = reportOf(s.id); const st = reportStats(s.id);
     const cat = staffCategoryCounts(s.id);
     const codesUsed = Object.entries(cat.byCode).sort((a, b) => b[1] - a[1]);
+    const mr = monthRange(cur.y, cur.m);
+    const myTasks = state.tasks.filter(t => t.assignee === s.name && taskInRange(t, mr.from, mr.to)).sort(taskSort);
+    const tCnt = { done: myTasks.filter(t => t.status === 'done').length, active: myTasks.filter(isActiveTask).length, overdue: myTasks.filter(taskOverdue).length };
     let h = `<div class="report-head">
       <div><h2>${esc(s.name)} <small>${cur.y}年${cur.m}月 月報</small></h2>
         <div class="report-kpis">
@@ -1046,6 +1096,7 @@
           <span>日次評価 ◎${st.rc[3]} ○${st.rc[2]} △${st.rc[1]} ×${st.rc[-1]}</span>
           ${st.avg != null ? `<span>平均 <b>${st.avg.toFixed(2)}</b></span>` : ''}
           <span>考課タグ付き <b>${st.tagged}</b>日</span>
+          <span>タスク 完了 <b>${tCnt.done}</b> / 進行中 <b>${tCnt.active}</b>${tCnt.overdue ? ` / <b style="color:#dc2626">超過 ${tCnt.overdue}</b>` : ''}</span>
         </div>
         <div class="report-codes">${codesUsed.map(([k, n]) => `<span class="chip" style="background:${colorOf(k)}">${esc(k)} ${n}</span>`).join('')}</div>
       </div>
@@ -1071,6 +1122,7 @@
       </tr>`;
     }
     h += '</tbody></table>';
+    h += `<div class="report-summary"><div class="card task-card" style="grid-column:1/-1"><h3>今月のタスク<small>この月に期間が重なるタスク（タスクタブと同じ記録）</small><button class="btn no-print" id="reportTaskAdd" style="margin-left:auto;padding:3px 10px">＋ タスクを振る</button></h3>${renderTaskList(myTasks, { empty: 'この月のタスクはありません。' })}</div></div>`;
     h += `<div class="report-summary">
       <div class="card"><h3>今月の総括（本人）</h3><textarea id="rSelf" rows="5" placeholder="今月の成果、うまくいったこと、課題、来月に向けて">${esc(r.self || '')}</textarea></div>
       <div class="card"><h3>上長総評・月間評価</h3>
@@ -1091,6 +1143,8 @@
     $('#rSelf').addEventListener('change', e => { reportOf(s.id, true).self = e.target.value.trim(); save(); });
     $('#rMgr').addEventListener('change', e => { reportOf(s.id, true).mgrSummary = e.target.value.trim(); save(); refreshReportSide(); });
     $$('.rating-row button', main).forEach(b => b.onclick = () => { reportOf(s.id, true).rating = b.dataset.rating; save(); renderReport(); });
+    bindTaskList($('.task-card', main), renderReport);
+    $('#reportTaskAdd').onclick = () => { const tk = todayKey(); openTaskModal(null, { assignee: s.name, start: tk >= mr.from && tk <= mr.to ? tk : mr.from, onSave: renderReport }); };
     $('#reportExportBtn').onclick = () => exportReportExcel([s]);
     $('#reportPrintBtn').onclick = () => {
       // 月報はA4縦で印刷（月間表はA3横のまま）
@@ -1102,8 +1156,9 @@
   }
   function refreshReportSide() { const keep = reportStaffId; const mo = month(true); const li = $(`#reportStaffList li[data-id="${keep}"]`); if (!li) return; const st = reportStats(keep); const pct = st.work ? Math.round(st.filled / st.work * 100) : 0; $('.meta', li).innerHTML = `${st.filled}/${st.work}日${st.rating ? ` <b class="rt rt-${st.rating}">${st.rating}</b>` : ''}`; $('.bar i', li).style.width = pct + '%'; }
   // 考課項目タグの選択ポップアップ
-  function openTagPicker(staffId, d, anchor) {
+  function openTagPicker(staffId, d, anchor, onDone) {
     closeTagPicker();
+    const rerender = onDone || renderReport;
     const rd = reportDay(staffId, d, true); const cur0 = new Set(rd.tags || []);
     const pop = document.createElement('div'); pop.id = 'tagPicker'; pop.className = 'tag-picker no-print';
     const groups = []; APPR_ITEMS.forEach(it => { let g = groups.find(x => x.cat === it.cat); if (!g) { g = { cat: it.cat, group: it.group, items: [] }; groups.push(g); } g.items.push(it); });
@@ -1117,7 +1172,7 @@
     pop.style.left = left + 'px';
     const H = pop.offsetHeight; let top = r.bottom + 4; if (top + H > window.innerHeight - 8) top = Math.max(8, r.top - H - 4);
     pop.style.top = top + 'px';
-    const commit = () => { const tags = $$('input:checked', pop).map(i => i.value); if (tags.length) rd.tags = tags; else delete rd.tags; save(); closeTagPicker(); renderReport(); };
+    const commit = () => { const tags = $$('input:checked', pop).map(i => i.value); if (tags.length) rd.tags = tags; else delete rd.tags; save(); closeTagPicker(); rerender(); };
     $('.tp-ok', pop).onclick = commit;
     $('.tp-clear', pop).onclick = () => { $$('input', pop).forEach(i => i.checked = false); commit(); };
     $('.tp-close', pop).onclick = closeTagPicker;
@@ -1154,6 +1209,12 @@
       put(row, 0, '今月の総括（本人）', hdr); put(row, 1, r.self || '', { font, border: B, alignment: { vertical: 'top', wrapText: true } }); ws['!merges'] = [{ s: { r: row, c: 1 }, e: { r: row, c: 7 } }]; row++;
       put(row, 0, '上長総評', hdr); put(row, 1, r.mgrSummary || '', { font, border: B, alignment: { vertical: 'top', wrapText: true } }); ws['!merges'].push({ s: { r: row, c: 1 }, e: { r: row, c: 7 } }); row++;
       put(row, 0, '月間評価', hdr); put(row, 1, r.rating || '未評価', { font: { ...font, bold: true, sz: 12 }, border: B, alignment: { horizontal: 'center' } }); row++;
+      const mr = monthRange(cur.y, cur.m); const tl = state.tasks.filter(t => t.assignee === s.name && taskInRange(t, mr.from, mr.to)).sort(taskSort);
+      if (tl.length) {
+        row++; put(row, 0, '今月のタスク', { font: { ...font, bold: true } }); row++;
+        ['状態', '優先', 'タスク名', '内容', '開始', '期限', '完了日', '進捗・結果'].forEach((x, i) => put(row, i, x, hdr)); row++;
+        tl.forEach(t => { const base = { font, border: B, alignment: { vertical: 'top', wrapText: true } }; put(row, 0, TASK_STATUS[t.status], { ...base, alignment: { horizontal: 'center' } }); put(row, 1, TASK_PRI[t.priority || 2], { ...base, alignment: { horizontal: 'center' } }); put(row, 2, t.title, base); put(row, 3, t.desc || '', base); put(row, 4, t.start || '', base); put(row, 5, t.due || '', base); put(row, 6, t.doneAt || '', base); put(row, 7, t.progress || '', base); row++; });
+      }
       ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: row, c: 7 } });
       ws['!cols'] = [{ wch: 4 }, { wch: 4 }, { wch: 13 }, { wch: 16 }, { wch: 44 }, { wch: 5 }, { wch: 34 }, { wch: 18 }];
       let name = s.name.replace(/[\\\/\?\*\[\]:]/g, '_').slice(0, 28); let k = 2; const b0 = name; while (used.has(name)) name = `${b0}_${k++}`; used.add(name);
@@ -1352,20 +1413,216 @@
     toast('考課表を書き出しました');
   }
 
+  // ---------- タスク ----------
+  // state.tasks = [{ id, title, desc, assignee(氏名), priority 1-3, status todo|doing|done|cancel, start, due, created, doneAt, progress, updatedAt }]
+  const TASK_STATUS = { todo: '未着手', doing: '実行中', done: '完了', cancel: '中止' };
+  const TASK_STATUS_ORDER = { doing: 0, todo: 1, done: 2, cancel: 3 };
+  const TASK_PRI = { 3: '高', 2: '中', 1: '低' };
+  const todayKey = () => { const t = new Date(); return `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`; };
+  const isActiveTask = t => t.status === 'todo' || t.status === 'doing';
+  const taskOverdue = t => isActiveTask(t) && t.due && t.due < todayKey();
+  const taskStart = t => t.start || t.created || '';
+  const taskEnd = t => t.due || (isActiveTask(t) ? '9999-12-31' : (t.doneAt || t.start || t.created || ''));
+  function taskTouchesDay(t, k) {
+    if (t.created === k || t.doneAt === k) return true;
+    const s = taskStart(t); if (!s || s > k) return false;
+    return taskEnd(t) >= k;
+  }
+  function taskInRange(t, from, to) {
+    if (!from && !to) return true;
+    const s = taskStart(t), e = taskEnd(t);
+    if (to && s > to) return false;
+    if (from && e < from) return false;
+    return true;
+  }
+  function taskSort(a, b) {
+    return (TASK_STATUS_ORDER[a.status] - TASK_STATUS_ORDER[b.status]) || ((b.priority || 2) - (a.priority || 2)) || ((a.due || '9999') < (b.due || '9999') ? -1 : (a.due || '9999') > (b.due || '9999') ? 1 : 0) || ((a.start || '') < (b.start || '') ? -1 : 1);
+  }
+  function allStaffNames() {
+    const seen = new Set(), out = [];
+    const mo = month(); if (mo) mo.staff.forEach(s => { if (!seen.has(s.name)) { seen.add(s.name); out.push(s.name); } });
+    Object.keys(state.months).sort().reverse().forEach(k => state.months[k].staff.forEach(s => { if (!seen.has(s.name)) { seen.add(s.name); out.push(s.name); } }));
+    state.tasks.forEach(t => { if (t.assignee && !seen.has(t.assignee)) { seen.add(t.assignee); out.push(t.assignee); } });
+    return out;
+  }
+  const fmtDate = k => { if (!k) return ''; const [y, m, d] = k.split('-').map(Number); return `${m}/${d}`; };
+  const fmtDateW = k => { if (!k) return ''; const [y, m, d] = k.split('-').map(Number); return `${m}/${d}(${DOW[dow(y, m, d)]})`; };
+  function setTaskStatus(t, st) {
+    t.status = st; t.updatedAt = todayKey();
+    if (st === 'done' || st === 'cancel') { if (!t.doneAt) t.doneAt = todayKey(); } else delete t.doneAt;
+  }
+  function renderTaskList(tasks, opts) {
+    opts = opts || {};
+    if (!tasks.length) return `<p class="hint task-empty">${esc(opts.empty || 'タスクはありません。')}</p>`;
+    const tk = todayKey();
+    return `<ul class="task-list">${tasks.map(t => {
+      const od = taskOverdue(t); const dueSoon = !od && isActiveTask(t) && t.due && t.due <= addDays(tk, 2);
+      return `<li class="task st-${t.status} pri-${t.priority || 2} ${od ? 'overdue' : ''}" data-id="${t.id}">
+        <div class="t-st"><div class="st-btns no-print">${['todo', 'doing', 'done'].map(s => `<button data-st="${s}" class="${t.status === s ? 'on' : ''}" title="${TASK_STATUS[s]}">${TASK_STATUS[s]}</button>`).join('')}</div><span class="st-print">${TASK_STATUS[t.status]}</span></div>
+        <div class="t-main">
+          <div class="t-title"><span class="pri p${t.priority || 2}" title="優先度">${TASK_PRI[t.priority || 2]}</span>${opts.showAssignee ? `<span class="t-who">${esc(t.assignee || '未割当')}</span>` : ''}<b>${esc(t.title)}</b>${t.status === 'cancel' ? '<span class="t-cancel">中止</span>' : ''}</div>
+          ${t.desc ? `<div class="t-desc">${esc(t.desc)}</div>` : ''}
+          ${t.progress ? `<div class="t-prog">${esc(t.progress)}</div>` : ''}
+        </div>
+        <div class="t-dates">
+          ${t.start ? `<span title="開始日">${fmtDateW(t.start)}</span>` : ''}${t.due ? `<span class="due ${od ? 'od' : dueSoon ? 'soon' : ''}" title="期限">〜${fmtDateW(t.due)}${od ? ' 超過' : ''}</span>` : '<span class="nodue">期限なし</span>'}
+          ${t.doneAt && !isActiveTask(t) ? `<span class="doneat">${t.status === 'done' ? '完了' : '中止'} ${fmtDate(t.doneAt)}</span>` : ''}
+        </div>
+        <button class="btn t-edit no-print" title="編集">編集</button>
+      </li>`;
+    }).join('')}</ul>`;
+  }
+  function addDays(k, n) { const [y, m, d] = k.split('-').map(Number); const t = new Date(y, m - 1, d + n); return `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`; }
+  function bindTaskList(root, rerender) {
+    if (!root) return;
+    $$('.task .st-btns button', root).forEach(b => b.onclick = () => { const t = state.tasks.find(x => x.id === b.closest('.task').dataset.id); if (!t) return; setTaskStatus(t, t.status === b.dataset.st && b.dataset.st !== 'todo' ? 'todo' : b.dataset.st); save(); rerender(); });
+    $$('.task .t-edit, .task .t-title', root).forEach(el => el.onclick = () => { const t = state.tasks.find(x => x.id === el.closest('.task').dataset.id); if (t) openTaskModal(t, { onSave: rerender }); });
+  }
+  function openTaskModal(task, opts) {
+    opts = opts || {};
+    const m = $('#taskModal'); const isNew = !task;
+    const names = allStaffNames();
+    $('#tmTitle').textContent = isNew ? 'タスクを追加' : 'タスクを編集';
+    $('#tmAssignee').innerHTML = `<option value="">（未割当）</option>` + names.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('');
+    $('#tmTitleInput').value = task ? task.title : '';
+    $('#tmAssignee').value = task ? (task.assignee || '') : (opts.assignee || '');
+    $('#tmPriority').value = String(task ? (task.priority || 2) : 2);
+    $('#tmStatus').value = task ? task.status : 'todo';
+    $('#tmStart').value = task ? (task.start || '') : (opts.start || todayKey());
+    $('#tmDue').value = task ? (task.due || '') : (opts.due || '');
+    $('#tmDesc').value = task ? (task.desc || '') : '';
+    $('#tmProgress').value = task ? (task.progress || '') : '';
+    $('#tmMeta').textContent = task ? `作成 ${task.created || '-'}${task.updatedAt ? ` / 更新 ${task.updatedAt}` : ''}${task.doneAt ? ` / ${TASK_STATUS[task.status]} ${task.doneAt}` : ''}` : '';
+    $('#tmDelete').classList.toggle('hidden', isNew);
+    m.classList.remove('hidden');
+    setTimeout(() => { const el = $('#tmTitleInput'); if (el && !m.classList.contains('hidden')) el.focus(); }, 0);
+    const close = () => { m.classList.add('hidden'); document.removeEventListener('keydown', onKey); };
+    const onKey = e => { if (e.key === 'Escape') close(); if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) doSave(); };
+    const doSave = () => {
+      const title = $('#tmTitleInput').value.trim(); if (!title) { toast('タスク名を入力してください', true); $('#tmTitleInput').focus(); return; }
+      const t = task || { id: uid(), created: todayKey() };
+      t.title = title; t.assignee = $('#tmAssignee').value; t.priority = +$('#tmPriority').value;
+      t.start = $('#tmStart').value; t.due = $('#tmDue').value;
+      if (t.start && t.due && t.due < t.start) t.start = t.due;
+      t.desc = $('#tmDesc').value.trim(); t.progress = $('#tmProgress').value.trim();
+      const st = $('#tmStatus').value; if (st !== t.status) setTaskStatus(t, st); else t.updatedAt = todayKey();
+      if (isNew) state.tasks.push(t);
+      save(); close(); toast(isNew ? 'タスクを追加しました' : 'タスクを保存しました');
+      if (opts.onSave) opts.onSave();
+    };
+    $('#tmSave').onclick = doSave;
+    $('#tmCancel').onclick = close; $('#tmClose').onclick = close;
+    $('#tmDelete').onclick = () => { if (!task) return; if (!confirm(`「${task.title}」を削除しますか？`)) return; state.tasks = state.tasks.filter(x => x.id !== task.id); save(); close(); toast('タスクを削除しました'); if (opts.onSave) opts.onSave(); };
+    m.onclick = e => { if (e.target === m) close(); };
+    document.addEventListener('keydown', onKey);
+  }
+  // --- タスクタブ ---
+  let taskF = { from: '', to: '', staff: '', status: 'active', q: '' };
+  function monthRange(y, m) { return { from: `${y}-${pad(m)}-01`, to: `${y}-${pad(m)}-${pad(daysIn(y, m))}` }; }
+  function initTasks() {
+    try { Object.assign(taskF, JSON.parse(localStorage.getItem('shiftapp.taskf') || '{}')); } catch (e) { }
+    if (!taskF.from && !taskF.to) { Object.assign(taskF, monthRange(cur.y, cur.m)); }
+    const persist = () => localStorage.setItem('shiftapp.taskf', JSON.stringify(taskF));
+    $('#taskFrom').onchange = e => { taskF.from = e.target.value; persist(); renderTasks(); };
+    $('#taskTo').onchange = e => { taskF.to = e.target.value; persist(); renderTasks(); };
+    $$('#view-tasks [data-range]').forEach(b => b.onclick = () => {
+      const r = b.dataset.range;
+      if (r === 'month') Object.assign(taskF, monthRange(cur.y, cur.m));
+      else if (r === 'week') { const t = new Date(); const mon = new Date(t); mon.setDate(t.getDate() - ((t.getDay() + 6) % 7)); const sun = new Date(mon); sun.setDate(mon.getDate() + 6); taskF.from = `${mon.getFullYear()}-${pad(mon.getMonth() + 1)}-${pad(mon.getDate())}`; taskF.to = `${sun.getFullYear()}-${pad(sun.getMonth() + 1)}-${pad(sun.getDate())}`; }
+      else { taskF.from = ''; taskF.to = ''; taskF.status = 'active'; }
+      persist(); renderTasks();
+    });
+    $('#taskStaffFilter').onchange = e => { taskF.staff = e.target.value; persist(); renderTasks(); };
+    $('#taskStatusFilter').onchange = e => { taskF.status = e.target.value; persist(); renderTasks(); };
+    $('#taskSearch').addEventListener('input', e => { taskF.q = e.target.value.trim(); renderTaskBody(); });
+    $('#taskNewBtn').onclick = () => openTaskModal(null, { assignee: taskF.staff || '', start: taskF.from && taskF.from <= todayKey() && (!taskF.to || taskF.to >= todayKey()) ? todayKey() : (taskF.from || todayKey()), onSave: renderTasks });
+    $('#taskExportBtn').onclick = exportTasksExcel;
+  }
+  function filteredTasks() {
+    const q = (taskF.q || '').toLowerCase();
+    return state.tasks.filter(t => {
+      if (!taskInRange(t, taskF.from, taskF.to)) return false;
+      if (taskF.staff && (t.assignee || '') !== taskF.staff) return false;
+      if (taskF.status === 'active' ? !isActiveTask(t) : (taskF.status && t.status !== taskF.status)) return false;
+      if (q && !(`${t.title} ${t.desc || ''} ${t.progress || ''} ${t.assignee || ''}`.toLowerCase().includes(q))) return false;
+      return true;
+    }).sort(taskSort);
+  }
+  function renderTasks() {
+    $('#taskFrom').value = taskF.from || ''; $('#taskTo').value = taskF.to || '';
+    const names = allStaffNames();
+    $('#taskStaffFilter').innerHTML = `<option value="">担当：全員</option>` + names.map(n => `<option value="${esc(n)}" ${taskF.staff === n ? 'selected' : ''}>${esc(n)}</option>`).join('') + `<option value="" disabled>──</option>`;
+    if (taskF.staff && !names.includes(taskF.staff)) taskF.staff = '';
+    $('#taskStatusFilter').value = taskF.status;
+    $('#taskSearch').value = taskF.q || '';
+    renderTaskBody();
+  }
+  function renderTaskBody() {
+    const inRange = state.tasks.filter(t => taskInRange(t, taskF.from, taskF.to) && (!taskF.staff || (t.assignee || '') === taskF.staff));
+    const cnt = { todo: 0, doing: 0, done: 0, cancel: 0, overdue: 0 };
+    inRange.forEach(t => { cnt[t.status] = (cnt[t.status] || 0) + 1; if (taskOverdue(t)) cnt.overdue++; });
+    const list = filteredTasks();
+    const label = taskF.from || taskF.to ? `${taskF.from ? fmtDateFull(taskF.from) : ''} 〜 ${taskF.to ? fmtDateFull(taskF.to) : ''}` : '全期間';
+    let h = `<div class="task-wrap"><div class="task-kpis">
+      <span class="kpi"><small>期間</small><b class="lbl">${esc(label)}</b></span>
+      <span class="kpi k-doing" data-st="doing"><small>実行中</small><b>${cnt.doing}</b></span>
+      <span class="kpi k-todo" data-st="todo"><small>未着手</small><b>${cnt.todo}</b></span>
+      <span class="kpi k-od ${cnt.overdue ? 'warn' : ''}"><small>期限超過</small><b>${cnt.overdue}</b></span>
+      <span class="kpi k-done" data-st="done"><small>完了</small><b>${cnt.done}</b></span>
+      ${cnt.cancel ? `<span class="kpi" data-st="cancel"><small>中止</small><b>${cnt.cancel}</b></span>` : ''}
+    </div>`;
+    // 担当者別サマリ
+    const byWho = {}; inRange.forEach(t => { const k = t.assignee || '未割当'; const o = byWho[k] = byWho[k] || { a: 0, d: 0, o: 0 }; if (isActiveTask(t)) o.a++; if (t.status === 'done') o.d++; if (taskOverdue(t)) o.o++; });
+    const whoKeys = Object.keys(byWho);
+    if (!taskF.staff && whoKeys.length) {
+      h += `<div class="task-who-bar">${whoKeys.sort((a, b) => a.localeCompare(b, 'ja')).map(k => `<button class="who-chip" data-who="${esc(k === '未割当' ? '' : k)}"><b>${esc(k)}</b><span>進行 ${byWho[k].a}</span><span>完了 ${byWho[k].d}</span>${byWho[k].o ? `<span class="od">超過 ${byWho[k].o}</span>` : ''}</button>`).join('')}</div>`;
+    }
+    h += `<div class="card">${renderTaskList(list, { showAssignee: true, empty: taskF.q ? '該当するタスクがありません。' : '条件に合うタスクはありません。「＋ タスクを追加」から追加するか、日別タブで各人にタスクを振ってください。' })}</div></div>`;
+    $('#taskContent').innerHTML = h;
+    bindTaskList($('#taskContent'), renderTasks);
+    $$('#taskContent .kpi[data-st]').forEach(k => k.onclick = () => { taskF.status = taskF.status === k.dataset.st ? 'active' : k.dataset.st; localStorage.setItem('shiftapp.taskf', JSON.stringify(taskF)); renderTasks(); });
+    $$('#taskContent .who-chip').forEach(b => b.onclick = () => { taskF.staff = b.dataset.who; localStorage.setItem('shiftapp.taskf', JSON.stringify(taskF)); renderTasks(); });
+  }
+  const fmtDateFull = k => { const [y, m, d] = k.split('-').map(Number); return `${y}/${m}/${d}`; };
+  function exportTasksExcel() {
+    if (typeof XLSX === 'undefined') return toast('Excelライブラリが読み込めていません', true);
+    const list = filteredTasks(); if (!list.length) return toast('書き出すタスクがありません', true);
+    const border = { style: 'thin', color: { rgb: 'A6A6A6' } }; const B = { top: border, bottom: border, left: border, right: border };
+    const font = { name: 'Noto Sans JP', sz: 10 }; const fill = hex => ({ patternType: 'solid', fgColor: { rgb: hex.replace('#', '').toUpperCase() } });
+    const hdr = { font: { ...font, bold: true }, border: B, fill: fill('#D9D9D9'), alignment: { horizontal: 'center', vertical: 'center' } };
+    const base = { font, border: B, alignment: { vertical: 'top', wrapText: true } };
+    const ws = {}; const put = (r, c, v, s) => { ws[XLSX.utils.encode_cell({ r, c })] = { v: v == null ? '' : v, t: 's', s: s || base }; };
+    put(0, 0, `タスク一覧 ${taskF.from || taskF.to ? `${taskF.from || ''}〜${taskF.to || ''}` : '全期間'}${taskF.staff ? ' ' + taskF.staff : ''}`, { font: { ...font, bold: true, sz: 13 } });
+    ['状態', '優先度', '担当', 'タスク名', '内容', '開始日', '期限', '完了/中止日', '進捗・結果', '作成日'].forEach((x, i) => put(2, i, x, hdr));
+    list.forEach((t, i) => {
+      const r = 3 + i; const od = taskOverdue(t);
+      put(r, 0, TASK_STATUS[t.status], { ...base, fill: fill(t.status === 'doing' ? '#DDEBF7' : t.status === 'done' ? '#E2EFDA' : t.status === 'cancel' ? '#EDEDED' : '#FFFFFF'), alignment: { horizontal: 'center' } });
+      put(r, 1, TASK_PRI[t.priority || 2], { ...base, alignment: { horizontal: 'center' } }); put(r, 2, t.assignee || ''); put(r, 3, t.title); put(r, 4, t.desc || '');
+      put(r, 5, t.start || ''); put(r, 6, t.due || '', od ? { ...base, fill: fill('#FCE4D6') } : base); put(r, 7, t.doneAt || ''); put(r, 8, t.progress || ''); put(r, 9, t.created || '');
+    });
+    ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: 3 + list.length, c: 9 } });
+    ws['!cols'] = [{ wch: 7 }, { wch: 6 }, { wch: 10 }, { wch: 32 }, { wch: 40 }, { wch: 11 }, { wch: 11 }, { wch: 11 }, { wch: 36 }, { wch: 11 }];
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'タスク');
+    XLSX.writeFile(wb, `タスク一覧_${(taskF.from || '').replace(/-/g, '') || 'all'}-${(taskF.to || '').replace(/-/g, '') || 'all'}.xlsx`);
+    toast('タスク一覧を書き出しました');
+  }
+
   // ---------- views ----------
   function switchView(v) {
     view = v;
     $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === v));
-    ['grid', 'day', 'report', 'appraisal', 'summary', 'settings'].forEach(k => $('#view-' + k).classList.toggle('hidden', k !== v));
+    ['grid', 'day', 'report', 'tasks', 'appraisal', 'summary', 'settings'].forEach(k => $('#view-' + k).classList.toggle('hidden', k !== v));
     ed.close(); closeTagPicker();
-    document.body.classList.toggle('print-report', v === 'report' || v === 'appraisal');
+    document.body.classList.toggle('print-report', v === 'report' || v === 'appraisal' || v === 'day');
     document.body.classList.toggle('print-appr', v === 'appraisal');
+    document.body.classList.toggle('print-tasks', v === 'tasks');
     renderView();
   }
   function renderView() {
     if (view === 'grid') { renderLegend(); renderGrid(); }
     else if (view === 'day') renderDay();
     else if (view === 'report') renderReport();
+    else if (view === 'tasks') renderTasks();
     else if (view === 'appraisal') renderAppraisal();
     else if (view === 'summary') renderSummary();
     else renderSettings();
@@ -1395,7 +1652,7 @@
     $('#undoBtn').onclick = undo; $('#redoBtn').onclick = redo;
     $('#exportBtn').onclick = exportExcel;
     $('#importFile').onchange = e => { if (e.target.files[0]) importExcel(e.target.files[0]); e.target.value = ''; };
-    $('#printBtn').onclick = () => { if (view === 'report') { $('#reportPrintBtn') && $('#reportPrintBtn').click(); return; } if (view === 'appraisal') { printPortrait(); return; } if (view !== 'grid') switchView('grid'); setTimeout(() => window.print(), 100); };
+    $('#printBtn').onclick = () => { if (view === 'report') { $('#reportPrintBtn') && $('#reportPrintBtn').click(); return; } if (view === 'appraisal' || view === 'tasks' || view === 'day') { printPortrait(); return; } if (view !== 'grid') switchView('grid'); setTimeout(() => window.print(), 100); };
     $('#showNotes').onchange = renderGrid; $('#showCounts').onchange = renderGrid;
     $('#showCalendar').onchange = e => { localStorage.setItem('shiftapp.showcal', e.target.checked ? '1' : '0'); renderGrid(); };
     if (localStorage.getItem('shiftapp.showcal') === '0') $('#showCalendar').checked = false;
@@ -1413,10 +1670,10 @@
     // day view
     $('#prevDay').onclick = () => shiftDay(-1); $('#nextDay').onclick = () => shiftDay(1);
     $('#dayPicker').onchange = e => { const [y, m, d] = e.target.value.split('-').map(Number); if (!y) return; if (y !== cur.y || m !== cur.m) { cur = { y, m }; ensureStaffForMonth(); } dayViewDate = { y, m, d }; renderAll(); };
-    initEditor(); initKeys(); initSettings(); initSync(); initAppraisal();
+    initEditor(); initKeys(); initSettings(); initSync(); initAppraisal(); initTasks();
     $('#reportExportAllBtn').onclick = () => exportReportExcel(month(true).staff);
     init2();
-    const hv = (location.hash.match(/view=(grid|day|report|appraisal|summary|settings)/) || [])[1];
+    const hv = (location.hash.match(/view=(grid|day|report|tasks|appraisal|summary|settings)/) || [])[1];
     if (hv) switchView(hv);
     // クラウド同期: 起動時に読み込み、タブ復帰時にも確認、閉じる前に未送信があれば送信
     if (sync.on()) sync.pull(true);

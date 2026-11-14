@@ -30,6 +30,7 @@
     <button class="tab active" data-view="grid">月間表</button>
     <button class="tab" data-view="day">日別</button>
     <button class="tab" data-view="report">月報</button>
+    <button class="tab" data-view="tasks">タスク</button>
     <button class="tab" data-view="appraisal">考課</button>
     <button class="tab" data-view="summary">集計</button>
     <button class="tab" data-view="settings">設定</button>
@@ -90,6 +91,34 @@
       </aside>
       <div class="report-main" id="reportMain"></div>
     </div>
+  </section>
+
+  <!-- タスク -->
+  <section id="view-tasks" class="view hidden">
+    <div class="task-toolbar no-print">
+      <div class="task-period">
+        <label>期間 <input type="date" id="taskFrom"></label><span>〜</span><label><input type="date" id="taskTo"></label>
+        <button class="btn" data-range="month">今月</button>
+        <button class="btn" data-range="week">今週</button>
+        <button class="btn" data-range="open">未完了すべて</button>
+      </div>
+      <div class="task-filters">
+        <select id="taskStaffFilter"><option value="">担当：全員</option></select>
+        <select id="taskStatusFilter">
+          <option value="active">状態：未着手・実行中</option>
+          <option value="">すべて</option>
+          <option value="todo">未着手</option>
+          <option value="doing">実行中</option>
+          <option value="done">完了</option>
+          <option value="cancel">中止</option>
+        </select>
+        <input id="taskSearch" placeholder="キーワード検索" autocomplete="off">
+        <span style="flex:1"></span>
+        <button id="taskNewBtn" class="btn primary">＋ タスクを追加</button>
+        <button id="taskExportBtn" class="btn">Excel書出</button>
+      </div>
+    </div>
+    <div id="taskContent"></div>
   </section>
 
   <!-- 人事考課 -->
@@ -203,6 +232,34 @@
     <button id="ceClear" class="btn">消去</button>
     <span class="hint">配置を選んでから「決定」 / Enter=決定 / Esc=取消 / Tab=次の日へ</span>
     <button id="ceOk" class="btn primary">決定</button>
+  </div>
+</div>
+
+<!-- タスク編集モーダル -->
+<div id="taskModal" class="modal hidden no-print">
+  <div class="modal-box">
+    <div class="modal-head"><b id="tmTitle">タスクを追加</b><button id="tmClose" class="btn icon">&#10005;</button></div>
+    <div class="modal-body">
+      <label>タスク名<input id="tmTitleInput" placeholder="何をするか（例：角上Cの配送ルート見直し）" autocomplete="off"></label>
+      <div class="tm-row">
+        <label>担当<select id="tmAssignee"></select></label>
+        <label>優先度<select id="tmPriority"><option value="2">中</option><option value="3">高</option><option value="1">低</option></select></label>
+        <label>状態<select id="tmStatus"><option value="todo">未着手</option><option value="doing">実行中</option><option value="done">完了</option><option value="cancel">中止</option></select></label>
+      </div>
+      <div class="tm-row">
+        <label>開始日<input type="date" id="tmStart"></label>
+        <label>期限<input type="date" id="tmDue"></label>
+      </div>
+      <label>内容・メモ<textarea id="tmDesc" rows="3" placeholder="背景、やり方、注意点など"></textarea></label>
+      <label>進捗・結果メモ<textarea id="tmProgress" rows="3" placeholder="進み具合、完了時の結果、振り返り"></textarea></label>
+      <p class="hint" id="tmMeta"></p>
+    </div>
+    <div class="modal-foot">
+      <button id="tmDelete" class="btn danger">削除</button>
+      <span style="flex:1"></span>
+      <button id="tmCancel" class="btn">キャンセル</button>
+      <button id="tmSave" class="btn primary">保存</button>
+    </div>
   </div>
 </div>
 
